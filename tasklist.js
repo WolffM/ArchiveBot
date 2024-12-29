@@ -1,12 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const users = require('./users');
-
-function ensureDirectoryExists(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-    }
-}
+const helper = require('./helper');
 
 function loadTasks(guildId) {
     const guildPath = users.getGuildPath(guildId);
@@ -40,49 +35,31 @@ function logStat(guildId, userId, taskId, taskName, status, createdDate = null) 
     fs.appendFileSync(statsFile, logLine);
 }
 
-function calculateAge(creationDate) {
-    const now = new Date();
-    const created = new Date(creationDate);
-    const diffSeconds = Math.floor((now - created) / 1000);
-
-    if (diffSeconds < 10) return 'Fresh!';
-    if (diffSeconds < 60) return `${diffSeconds} sec`;
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    if (diffMinutes < 60) return `${diffMinutes} min`;
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''}`;
-    const diffDays = Math.floor(diffMinutes / 1440);
-    return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
-}
-
 async function initialize(message, guildId) {
     const guildPath = users.getGuildPath(guildId);
-    ensureDirectoryExists(guildPath);
+    helper.ensureDirectoryExists(guildPath); // Use helper
 
     const usersFilePath = path.join(guildPath, 'users.json');
     const tasksFilePath = path.join(guildPath, 'tasks.json');
     const statsFilePath = path.join(guildPath, 'stats.csv');
 
     // Remove existing tasks and stats files
-    if (fs.existsSync(tasksFilePath)) {
-        fs.unlinkSync(tasksFilePath);
-    }
-    if (fs.existsSync(statsFilePath)) {
-        fs.unlinkSync(statsFilePath);
-    }
+    [tasksFilePath, statsFilePath].forEach((file) => {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+    });
 
-    // Initialize tasks and stats files
+    // Initialize files
     const initialData = { currentTaskId: 1, tasks: [] };
     fs.writeFileSync(tasksFilePath, JSON.stringify(initialData, null, 2));
     fs.writeFileSync(statsFilePath, 'userId,taskId,taskName,date,status\n');
 
-    // Initialize users file if it doesn't exist
     if (!fs.existsSync(usersFilePath)) {
         fs.writeFileSync(usersFilePath, JSON.stringify({}, null, 2));
     }
 
     await message.channel.send('Tasklist initialized successfully!');
 }
+
 
 async function displayTaskList(message, guildId) {
     const tasksData = loadTasks(guildId);
@@ -99,7 +76,7 @@ async function displayTaskList(message, guildId) {
         id: Math.max(headers[0].length, ...tasks.map(task => task.taskId.toString().length)),
         name: Math.max(headers[1].length, ...tasks.map(task => task.taskName.length)),
         status: Math.max(headers[2].length, ...tasks.map(task => task.status.length)),
-        age: Math.max(headers[3].length, ...tasks.map(task => calculateAge(task.date).length)),
+        age: Math.max(headers[3].length, ...tasks.map(task => helper.calculateAge(task.date).length)),
         ...(includeAssigned && {
             assigned: Math.max(headers[4].length, ...tasks.map(task => {
                 const assigned = task.assigned ? users.getDisplayName(task.assigned, guildId) : "Unassigned";
@@ -127,10 +104,9 @@ async function displayTaskList(message, guildId) {
     const newHeaderData = generateHeader(maxNewLengths);
     const activeHeaderData = generateHeader(maxActiveLengths, true);
 
-    // Generate task rows
     const generateTaskRows = (tasks, lengths, includeAssigned = false) => {
         return tasks.map((task) => {
-            const age = calculateAge(task.date);
+            const age = helper.calculateAge(task.date); // Use helper here
             const assigned = includeAssigned ? (task.assigned ? users.getDisplayName(task.assigned, guildId) : "Unassigned") : "";
             return `| ${task.taskId.toString().padEnd(lengths.id)} | ${task.taskName.padEnd(lengths.name)} | ${task.status.padEnd(lengths.status)} | ${age.padEnd(lengths.age)} |${includeAssigned ? ` ${assigned.padEnd(lengths.assigned)} |` : ""}`;
         });
@@ -168,7 +144,7 @@ async function displayTaskList(message, guildId) {
     })
     .map(line => {
         const [userId, taskId, taskName, createdDate, completedDate] = line.split(',');
-        const age = calculateAge(new Date(createdDate));
+        const age = helper.calculateAge(new Date(createdDate));
 
         // Format completedDate to "MMM DD"
         const formattedCompletedDate = new Date(completedDate.trim()).toLocaleDateString('en-US', {
@@ -217,9 +193,8 @@ async function displayTaskList(message, guildId) {
         return chunks;
     };
 
-    // Split and send messages
     const sendTaskMessages = async (title, taskDisplay) => {
-        const chunks = splitMessage(taskDisplay);
+        const chunks = helper.splitMessage(taskDisplay);
         for (let i = 0; i < chunks.length; i++) {
             const content = i === 0 ? `**${title}**\n\`\`\`\n${chunks[i]}\n\`\`\`` : `\`\`\`\n${chunks[i]}\n\`\`\``;
             await message.channel.send(content);
@@ -313,22 +288,18 @@ async function start(message, args, adminUserIds) {
     const tasksData = loadTasks(guildId);
 
     switch (command) {
-        case 'add':
-            // Check for quoted format: "task1", "task2", "task3"
-            const quotedTaskNames = args.slice(1).join(' ').match(/"([^"]+)"/g)?.map(name => name.replace(/"/g, '').trim());
+        case 'add': {
+            const quotedTaskNames = args.slice(1).join(' ').match(/"([^"]+)"/g)?.map((name) => name.replace(/"/g, '').trim());
+            const addedTasks = [];
+            const skippedTasks = [];
         
-            if (quotedTaskNames && quotedTaskNames.length > 0) {
-                // Add tasks from quoted format
-                const addedTasks = [];
-                const skippedTasks = [];
+            (quotedTaskNames || [args.slice(1).join(' ').trim()]).forEach((taskName) => {
+                if (!taskName) return;
         
-                for (const taskName of quotedTaskNames) {
-                    const isDuplicate = tasksData.tasks.some(task => task.taskName === taskName);
-                    if (isDuplicate) {
-                        skippedTasks.push(taskName);
-                        continue;
-                    }
-        
+                const isDuplicate = tasksData.tasks.some((task) => task.taskName === taskName);
+                if (isDuplicate) {
+                    skippedTasks.push(taskName);
+                } else {
                     const newTask = {
                         taskId: tasksData.currentTaskId,
                         taskName,
@@ -338,148 +309,76 @@ async function start(message, args, adminUserIds) {
                     };
                     tasksData.tasks.push(newTask);
                     tasksData.currentTaskId++;
-                    addedTasks.push(`[${newTask.taskId}] ${newTask.taskName}`);
+                    addedTasks.push(newTask);
                 }
-        
-                saveTasks(guildId, tasksData);
-        
-                // Send confirmation message
-                const addedMessage = addedTasks.length > 0 ? `Tasks added:\n${addedTasks.join('\n')}` : "No new tasks added.";
-                const skippedMessage = skippedTasks.length > 0 ? `Skipped duplicates:\n${skippedTasks.join(', ')}` : "";
-                await message.channel.send(`${addedMessage}${skippedMessage ? `\n${skippedMessage}` : ""}`);
-            } else {
-                // Old method: Single plain text task
-                const taskName = args.slice(1).join(' ').trim();
-                if (!taskName) {
-                    await message.channel.send("Please provide a task name or use the format: !add \"task1\", \"task2\", \"task3\"");
-                    return;
-                }
-        
-                const isDuplicate = tasksData.tasks.some(task => task.taskName === taskName);
-                if (isDuplicate) {
-                    await message.channel.send(`Task "${taskName}" is already in the list.`);
-                    return;
-                }
-        
-                const newTask = {
-                    taskId: tasksData.currentTaskId,
-                    taskName,
-                    date: new Date().toISOString(),
-                    status: 'New',
-                    assigned: '',
-                };
-        
-                tasksData.tasks.push(newTask);
-                tasksData.currentTaskId++;
-                saveTasks(guildId, tasksData);
-        
-                // Confirm single task addition
-                await message.channel.send(`Task added: [${newTask.taskId}] ${newTask.taskName}`);
-            }
-            break;
-
-        case 'done':
-            const doneTaskId = parseInt(args[1]);
-            const doneTask = tasksData.tasks.find((task) => task.taskId === doneTaskId);
-            if (doneTask) {
-                doneTask.status = 'Completed';
-                saveTasks(guildId, tasksData);
-                logStat(guildId, message.author.id, doneTask.taskId, doneTask.taskName, 'Completed');
-                await message.channel.send(`Task marked as completed: [${doneTask.taskId}] ${doneTask.taskName}`);
-            } else {
-                await message.channel.send(`Task with ID ${doneTaskId} not found.`);
-            }
-            break;
-
-        case 'clear':
-            tasksData.tasks = tasksData.tasks.filter((task) => task.status !== 'Completed');
-            saveTasks(guildId, tasksData);
-            await message.channel.send(`Completed tasks have been cleared.`);
-            break;
-
-        case 'delete':
-            // Join all arguments after the command to handle multi-part IDs
-            const idsString = args.slice(1).join(' ');
-            console.log("Raw input for IDs:", idsString);
-
-            // Parse task IDs from the arguments
-            const deleteTaskIds = idsString.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
-            console.log("Parsed IDs to delete:", deleteTaskIds);
-
-            const deletedTasks = [];
-
-            // Filter tasks for deletion in one pass
-            const remainingTasks = tasksData.tasks.filter((task) => {
-                if (deleteTaskIds.includes(task.taskId)) {
-                    deletedTasks.push(task);
-                    logStat(guildId, message.author.id, task.taskId, task.taskName, 'Abandoned');
-                    return false; // Exclude from remaining tasks
-                }
-                return true; // Keep in remaining tasks
             });
-
-            // Update the tasks array with remaining tasks
-            tasksData.tasks = remainingTasks;
-
-            // Identify tasks that weren't found
-            const foundTaskIds = deletedTasks.map(task => task.taskId);
-            const notFoundDeletedTasks = deleteTaskIds.filter(taskId => !foundTaskIds.includes(taskId));
-
-            // Debugging: Log results of deletion process
-            console.log("Deleted tasks:", deletedTasks);
-            console.log("Tasks not found:", notFoundDeletedTasks);
-
-            // Save the updated tasks
-            if (deletedTasks.length > 0) {
-                saveTasks(guildId, tasksData);
-                await message.channel.send(`Tasks deleted: ${deletedTasks.map(task => `[${task.taskId}] ${task.taskName}`).join(', ')}`);
-            }
-
-            // Notify about tasks not found
-            if (notFoundDeletedTasks.length > 0) {
-                await message.channel.send(`Tasks not found: ${notFoundDeletedTasks.join(', ')}`);
-            }
-            break;
-
-        case 'take':
-            // Parse the task IDs from the arguments (e.g., "2,3,5,6,2")
-            const taskIds = args.slice(1).join('').split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-        
-            if (taskIds.length === 0) {
-                await message.channel.send("Please provide valid task IDs to take, e.g., `!take 2,3,5`.");
-                return;
-            }
-        
-            const takenTasks = [];
-            const alreadyActiveTasks = [];
-            const notFoundTasks = [];
-        
-            // Process each task ID
-            for (const taskId of new Set(taskIds)) { // Use Set to avoid processing duplicates
-                const task = tasksData.tasks.find((t) => t.taskId === taskId);
-        
-                if (task && task.status === 'New') {
-                    task.status = 'Active';
-                    task.assigned = message.author.id;
-                    takenTasks.push(`[${task.taskId}] ${task.taskName}`);
-                } else if (task && task.status === 'Active') {
-                    alreadyActiveTasks.push(`[${task.taskId}] ${task.taskName}`);
-                } else {
-                    notFoundTasks.push(taskId);
-                }
-            }
         
             saveTasks(guildId, tasksData);
         
-            // Prepare response messages
-            const takenMessage = takenTasks.length > 0 ? `Tasks taken:\n${takenTasks.join('\n')}` : "";
-            const activeMessage = alreadyActiveTasks.length > 0 ? `Already active:\n${alreadyActiveTasks.join('\n')}` : "";
-            const notFoundMessage = notFoundTasks.length > 0 ? `Not found or cannot be taken:\n${notFoundTasks.join(', ')}` : "";
+            const addedMessage = addedTasks.length > 0 ? `Tasks added:\n${helper.formatTasks(addedTasks)}` : "No new tasks added.";
+            const skippedMessage = skippedTasks.length > 0 ? `Skipped duplicates:\n${skippedTasks.join(', ')}` : "";
         
-            // Send a summary response
-            await message.channel.send(`${takenMessage}${activeMessage ? `\n\n${activeMessage}` : ""}${notFoundMessage ? `\n\n${notFoundMessage}` : ""}`);
+            await message.channel.send(`${addedMessage}${skippedMessage ? `\n${skippedMessage}` : ""}`);
             break;
-        default:
+        }        
+
+        case 'done': {
+            try {
+                const taskIds = helper.parseTaskIds(args);
+                const validIds = helper.validateTaskIds(taskIds, tasksData);
+                const tasks = helper.getTasksByIds(validIds, tasksData);
+        
+                tasks.forEach((task) => helper.updateTaskStatus(task, 'Completed', message.author.id));
+                helper.logTaskAction(tasks, guildId, message.author.id, 'Completed', logStat);
+                saveTasks(guildId, tasksData);
+        
+                const formattedTasks = helper.formatTasks(tasks);
+                await message.channel.send(`Tasks marked as completed:\n${formattedTasks}`);
+            } catch (error) {
+                await message.channel.send(error.message);
+            }
+            break;
+        }
+
+        case 'delete': {
+            try {
+                const taskIds = helper.parseTaskIds(args);
+                const validIds = helper.validateTaskIds(taskIds, tasksData);
+        
+                const initialCount = tasksData.tasks.length;
+                tasksData.tasks = tasksData.tasks.filter((task) => !validIds.includes(task.taskId));
+                saveTasks(guildId, tasksData);
+        
+                const deletedCount = initialCount - tasksData.tasks.length;
+                await message.channel.send(`Deleted ${deletedCount} task(s).`);
+            } catch (error) {
+                await message.channel.send(error.message);
+            }
+            break;
+        }
+
+        case 'take': {
+            try {
+                const taskIds = helper.parseTaskIds(args);
+                const validIds = helper.validateTaskIds(taskIds, tasksData);
+                const tasks = helper.getTasksByIds(validIds, tasksData);
+        
+                tasks.forEach((task) => helper.assignTask(task, message.author.id));
+                saveTasks(guildId, tasksData);
+        
+                const formattedTasks = helper.formatTasks(tasks);
+                await message.channel.send(`Tasks taken by you:\n${formattedTasks}`);
+            } catch (error) {
+                await message.channel.send(error.message);
+            }
+            break;
+        }
+        
+        case 'testt':
+            await message.channel.send(`Refreshing.`);
+            break;
+        
+            default:
             await message.channel.send(`Unknown task command: ${command}`);
             break;
     }

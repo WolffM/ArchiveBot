@@ -61,7 +61,7 @@ client.on('messageCreate', async (message) => {
     const commandName = args.shift();
 
     // Task-related commands
-    const taskCommands = ['add', 'done', 'clear', 'delete', 'take', 'init', 'helpt'];
+    const taskCommands = ['add', 'done', 'delete', 'take', 'init', 'helpt', 'testt'];
     if (taskCommands.includes(commandName)) {
         if (commandName === 'init' && !adminUserIds.includes(message.author.id)) {
             message.channel.send("Insufficient permission, please contact an admin.");
