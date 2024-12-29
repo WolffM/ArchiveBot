@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const tasklist = require('./tasklist');
 require('dotenv').config();
 
 const client = new Client({
@@ -59,6 +60,23 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(COMMAND_PREFIX.length).trim().split(/ +/);
     const commandName = args.shift();
 
+    // Task-related commands
+    const taskCommands = ['add', 'done', 'clear', 'delete', 'take', 'init', 'helpt'];
+    if (taskCommands.includes(commandName)) {
+        if (commandName === 'init' && !adminUserIds.includes(message.author.id)) {
+            message.channel.send("Insufficient permission, please contact an admin.");
+            return;
+        }
+        
+        try {
+            await tasklist.start(message, [commandName, ...args], adminUserIds);
+        } catch (error) {
+            console.error(`Error executing task command ${commandName}:`, error);
+            message.channel.send(`There was an error processing the command: ${commandName}`);
+        }
+        return;
+    }
+
     // Check for admin commands
     if (adminCommands.has(commandName)) {
         if (!adminUserIds.includes(message.author.id)) {
@@ -90,6 +108,8 @@ client.on('messageCreate', async (message) => {
 
     message.channel.send(`Unknown command: ${commandName}`);
 });
+
+
 
 // Function to handle the archivePics command
 async function handleArchivePicsCommand(message, args) {
