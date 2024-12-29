@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 function parseTaskIds(args) {
     const rawInput = args.slice(1).join(' ').trim(); // Join everything after the command
     let ids = [];
@@ -26,9 +28,17 @@ function getTasksByIds(taskIds, tasksData) {
     return tasks;
 }
 
+function getTasksByStatus(status, tasksData) {
+    const tasks = tasksData.tasks.filter((task) => status === task.status);
+    if (tasks.length === 0) {
+        throw new Error('No matching tasks found for the provided Status.');
+    }
+    return tasks;
+}
+
 function updateTaskStatus(task, status, userId = null) {
-    if (userId && (!task.assignedTo || task.assignedTo.trim() === '')) {
-        task.assignedTo = userId; // Assign if unassigned
+    if (userId && (!task.assigned || task.assigned.trim() === '')) {
+        task.assigned = userId; // Assign if unassigned
     }
     task.status = status;
     return task;
@@ -62,7 +72,8 @@ function splitMessage(content, limit = 2000) {
 }
 
 function assignTask(task, userId) {
-    task.assignedTo = userId;
+    task.assigned = userId;
+    task.status = 'Active';
     return task;
 }
 
@@ -96,3 +107,5 @@ function calculateAge(creationDate) {
     const diffDays = Math.floor(diffMinutes / 1440);
     return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
 }
+
+module.exports = { ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 

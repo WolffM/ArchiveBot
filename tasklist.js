@@ -5,7 +5,7 @@ const helper = require('./helper');
 
 function loadTasks(guildId) {
     const guildPath = users.getGuildPath(guildId);
-    ensureDirectoryExists(guildPath);
+    helper.ensureDirectoryExists(guildPath);
     const filePath = path.join(guildPath, 'tasks.json');
     if (fs.existsSync(filePath)) {
         return JSON.parse(fs.readFileSync(filePath));
@@ -178,21 +178,6 @@ async function displayTaskList(message, guildId) {
         ? [completedHeader, completedSeparator, ...completedRows].join('\n')
         : "No completed tasks.";
 
-    // Helper function to split messages into chunks
-    const splitMessage = (text, limit = 2000) => {
-        const chunks = [];
-        let currentChunk = "";
-        for (const line of text.split('\n')) {
-            if ((currentChunk + line).length + 1 > limit) {
-                chunks.push(currentChunk);
-                currentChunk = "";
-            }
-            currentChunk += `${line}\n`;
-        }
-        if (currentChunk) chunks.push(currentChunk);
-        return chunks;
-    };
-
     const sendTaskMessages = async (title, taskDisplay) => {
         const chunks = helper.splitMessage(taskDisplay);
         for (let i = 0; i < chunks.length; i++) {
@@ -201,15 +186,27 @@ async function displayTaskList(message, guildId) {
         }
     };
 
-    // Delete older messages as before
+    // The commands to look for
+    const commandsToDelete = ["!add", "!done", "!clear", "!take", "!init", "!helpt", "!testt"];
+
+    // Fetch the recent messages
     const messages = await message.channel.messages.fetch({ limit: 50 });
+
+    // Separate out bot and user messages
     const botMessages = messages.filter((msg) => msg.author.id === message.client.user.id);
     const userMessages = messages.filter((msg) => msg.author.id === message.author.id);
 
+    // Delete (all but the most recent) bot messages
     const botMessagesToDelete = Array.from(botMessages.values()).slice(1);
     await Promise.all(botMessagesToDelete.map((msg) => msg.delete()));
 
-    const userMessagesToDelete = Array.from(userMessages.values()).slice(1);
+    // Filter user messages that *start with* the listed commands, then slice(1)
+    const userCommandMessages = Array.from(userMessages.values()).filter((msg) =>
+    commandsToDelete.some((cmd) => msg.content.trim().toLowerCase().startsWith(cmd))
+    );
+
+    // We slice(1) so the newest message that triggered this doesn't get deleted
+    const userMessagesToDelete = userCommandMessages.slice(1);
     await Promise.all(userMessagesToDelete.map((msg) => msg.delete()));
 
     // Send New, Active, and Completed task lists
@@ -220,7 +217,6 @@ async function displayTaskList(message, guildId) {
 
 
 async function start(message, args, adminUserIds) {
-    users.handleNewMessage(message);
     const guildId = message.guild.id;
 
     // Handle the init command before checking for existing data
@@ -234,6 +230,7 @@ async function start(message, args, adminUserIds) {
         return;
     }
 
+    users.handleNewMessage(message);
     if (command === 'helpt') {
         const helpMessage = `
         **Task Bot Commands**
@@ -346,6 +343,8 @@ async function start(message, args, adminUserIds) {
                 const validIds = helper.validateTaskIds(taskIds, tasksData);
         
                 const initialCount = tasksData.tasks.length;
+                const deletedTasks = helper.getTasksByIds(validIds, tasksData);
+                helper.logTaskAction(deletedTasks, guildId, message.author.id, 'Abandoned', logStat);
                 tasksData.tasks = tasksData.tasks.filter((task) => !validIds.includes(task.taskId));
                 saveTasks(guildId, tasksData);
         
@@ -378,9 +377,9 @@ async function start(message, args, adminUserIds) {
             await message.channel.send(`Refreshing.`);
             break;
         
-            default:
-            await message.channel.send(`Unknown task command: ${command}`);
-            break;
+        default:
+        await message.channel.send(`Unknown task command: ${command}`);
+        break;
     }
 
     // Refresh and display the task list
