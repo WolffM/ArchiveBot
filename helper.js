@@ -1,4 +1,7 @@
 const fs = require('fs');
+const path = require('path');
+const users = require('./users');
+const csvParser = require('csv-parser');
 
 function parseTaskIds(args) {
     const rawInput = args.slice(1).join(' ').trim(); // Join everything after the command
@@ -19,6 +22,65 @@ function parseTaskIds(args) {
 
     return ids;
 }
+
+async function cleanupTasks(guildId, tasksData) {
+    const stats = []; // Initialize the stats array
+    const guildPath = users.getGuildPath(guildId);
+    const statsFile = path.join(guildPath, 'stats.csv');
+    const tasksFilePath = path.join(guildPath, 'tasks.json'); // Define tasks.json file path
+
+    // Wrap CSV loading in a promise
+    await new Promise((resolve, reject) => {
+        fs.createReadStream(statsFile)
+            .pipe(csvParser())
+            .on('data', (row) => {
+                stats.push({
+                    assigned: row['assigned'],
+                    taskId: parseInt(row['taskId'], 10),
+                    taskName: row['taskName'],
+                    status: row['status'],
+                });
+            })
+            .on('end', () => {
+                console.log('Stats loaded successfully.');
+                resolve();
+            })
+            .on('error', (err) => {
+                console.error('Error reading stats.csv:', err);
+                reject(err);
+            });
+    });
+
+    // Sync tasks.json with stats.csv
+    tasksData.tasks.forEach((task) => {
+        const statEntry = stats.find((stat) => stat.taskId === task.taskId);
+
+        if (statEntry) {
+            // Update task data from stats.csv
+            if (task.assigned !== statEntry.assigned) {
+                task.assigned = statEntry.assigned;
+            }
+            if (task.status !== statEntry.status) {
+                task.status = statEntry.status;
+            }
+        } else if (!task.assigned && task.status !== 'New') {
+            // Handle unassigned tasks
+            console.log(`Task ${task.taskId}: "${task.taskName}" is missing an assigned user.`);
+        }
+    });
+
+    // Save the updated tasks.json
+    try {
+        fs.writeFileSync(tasksFilePath, JSON.stringify(tasksData, null, 4), 'utf8');
+        console.log('Tasks cleaned and saved successfully.');
+    } catch (err) {
+        console.error('Error writing tasks.json:', err);
+    }
+}
+
+function truncateString (str, maxLength) {
+    return str.length > maxLength ? str.slice(0, maxLength - 3) + '...' : str;
+};
 
 function getTasksByIds(taskIds, tasksData) {
     const tasks = tasksData.tasks.filter((task) => taskIds.includes(task.taskId));
@@ -108,4 +170,77 @@ function calculateAge(creationDate) {
     return `${diffDays} day${diffDays > 1 ? 's' : ''}`;
 }
 
-module.exports = { ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 
+async function processTaskNames(args, tasksData, guildId) {
+    const quotedTaskNames = args.join(' ').match(/"([^"]+)"/g)?.map((name) => name.replace(/"/g, '').trim());
+    const addedTasks = [];
+    const skippedTasks = [];
+
+    (quotedTaskNames || [args.join(' ').trim()]).forEach((taskName) => {
+        if (!taskName) return;
+
+        const isDuplicate = tasksData.tasks.some((task) => task.taskName === taskName);
+        if (isDuplicate) {
+            skippedTasks.push(taskName);
+        } else {
+            const newTask = {
+                taskId: tasksData.currentTaskId,
+                taskName,
+                date: new Date().toISOString(),
+                status: 'New',
+                assigned: '',
+            };
+            tasksData.tasks.push(newTask);
+            tasksData.currentTaskId++;
+            addedTasks.push(newTask);
+        }
+    });
+
+    saveTasks(guildId, tasksData);
+
+    return { addedTasks, skippedTasks };
+}
+
+function saveTasks(guildId, data) {
+    const guildPath = users.getGuildPath(guildId);
+    const filePath = path.join(guildPath, 'tasks.json');
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+function postHelp() {
+        const helpMessage = `
+        **Task Bot Commands**
+        
+        **1. !add**
+        * Add one or more tasks to the list.
+          Example (single): \`!add clean dishes\`
+          Example (multiple): \`!add "clean dishes", "do laundry", "meditate"\`
+        
+        **2. !done**
+        * Mark a task as completed.
+          Example: \`!done 2\`
+        
+        **3. !clear**
+        * Remove all completed tasks from the list.
+          Example: \`!clear\`
+        
+        **4. !delete**
+        * Permanently delete a task and log it as abandoned.
+          Example: \`!delete 3\`
+        
+        **5. !take**
+        * Take responsibility for one or more tasks (mark as active).
+          Example (single): \`!take 4\`
+          Example (multiple): \`!take 4,5,6\`
+        
+        **6. !init**
+        * Initialize the task list for the server (Admin only).
+          Example: \`!init\`
+        
+        **7. !helpt**
+        * Show this help message.
+          Example: \`!helpt\`
+        `;
+        return helpMessage;
+}
+
+module.exports = { cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 

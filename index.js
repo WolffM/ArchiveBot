@@ -105,8 +105,6 @@ client.on('messageCreate', async (message) => {
         }
         return;
     }
-
-    message.channel.send(`Unknown command: ${commandName}`);
 });
 
 

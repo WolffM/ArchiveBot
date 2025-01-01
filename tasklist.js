@@ -16,12 +16,6 @@ function loadTasks(guildId) {
     }
 }
 
-function saveTasks(guildId, data) {
-    const guildPath = users.getGuildPath(guildId);
-    const filePath = path.join(guildPath, 'tasks.json');
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-}
-
 function logStat(guildId, userId, taskId, taskName, status, createdDate = null) {
     const guildPath = users.getGuildPath(guildId);
     const statsFile = path.join(guildPath, 'stats.csv');
@@ -64,120 +58,113 @@ async function initialize(message, guildId) {
 async function displayTaskList(message, guildId) {
     const tasksData = loadTasks(guildId);
 
-    // Separate tasks into New and Active
-    const newTasks = tasksData.tasks.filter((task) => task.status === 'New');
-    const activeTasks = tasksData.tasks.filter((task) => task.status === 'Active');
+    // Helper function to truncate string dynamically
+    const truncateString = (str, maxLength) => {
+        return str.length > maxLength ? str.slice(0, maxLength - 3) + '...' : str;
+    };
 
-    // Define headers
-    const headers = ["ID", "Task Name", "Status", "Age", "Assigned"];
+    // Helper function to create table
+    const createTable = (title, tasks, headers, columnSelectors) => {
+        const maxRowWidth = 50;
+        const separatorWidth = headers.length - 1; // Account for separators
 
-    // Calculate max lengths for columns
-    const calculateMaxLengths = (tasks, includeAssigned = false) => ({
-        id: Math.max(headers[0].length, ...tasks.map(task => task.taskId.toString().length)),
-        name: Math.max(headers[1].length, ...tasks.map(task => task.taskName.length)),
-        status: Math.max(headers[2].length, ...tasks.map(task => task.status.length)),
-        age: Math.max(headers[3].length, ...tasks.map(task => helper.calculateAge(task.date).length)),
-        ...(includeAssigned && {
-            assigned: Math.max(headers[4].length, ...tasks.map(task => {
-                const assigned = task.assigned ? users.getDisplayName(task.assigned, guildId) : "Unassigned";
-                return assigned.length;
-            }))
-        })
-    });
+        const maxLengths = headers.reduce((lengths, header, index) => {
+            lengths[index] = Math.max(
+                header.length,
+                ...tasks.map((task) => columnSelectors[index](task).length)
+            );
+            return lengths;
+        }, []);
 
-    const maxNewLengths = calculateMaxLengths(newTasks);
-    const maxActiveLengths = calculateMaxLengths(activeTasks, true);
+        const totalFixedWidth = maxLengths.reduce((sum, length) => sum + length, 0) + separatorWidth;
 
-    // Generate headers and separators
-    const generateHeader = (lengths, includeAssigned = false) => {
-        const header = `| ${headers[0].padEnd(lengths.id)} | ${headers[1].padEnd(lengths.name)} | ${headers[2].padEnd(lengths.status)} | ${headers[3].padEnd(lengths.age)} |`;
-        const separator = `|-${'-'.repeat(lengths.id)}-|-${'-'.repeat(lengths.name)}-|-${'-'.repeat(lengths.status)}-|-${'-'.repeat(lengths.age)}-|`;
-        if (includeAssigned) {
-            return {
-                header: `${header} ${headers[4].padEnd(lengths.assigned)} |`,
-                separator: `${separator}-${'-'.repeat(lengths.assigned)}-|`
-            };
+        // Dynamically adjust the task name column if the total width exceeds the max
+        if (totalFixedWidth > maxRowWidth) {
+            const taskNameIndex = headers.indexOf("Task Name");
+            const excessWidth = totalFixedWidth - maxRowWidth;
+            maxLengths[taskNameIndex] -= excessWidth;
         }
-        return { header, separator };
-    };
 
-    const newHeaderData = generateHeader(maxNewLengths);
-    const activeHeaderData = generateHeader(maxActiveLengths, true);
+        const headerRow = `| ${headers.map((h, i) => h.padEnd(maxLengths[i])).join(' | ')} |`;
+        const separatorRow = `|-${maxLengths.map((len) => '-'.repeat(len)).join('-|-')}-|`;
 
-    const generateTaskRows = (tasks, lengths, includeAssigned = false) => {
-        return tasks.map((task) => {
-            const age = helper.calculateAge(task.date); // Use helper here
-            const assigned = includeAssigned ? (task.assigned ? users.getDisplayName(task.assigned, guildId) : "Unassigned") : "";
-            return `| ${task.taskId.toString().padEnd(lengths.id)} | ${task.taskName.padEnd(lengths.name)} | ${task.status.padEnd(lengths.status)} | ${age.padEnd(lengths.age)} |${includeAssigned ? ` ${assigned.padEnd(lengths.assigned)} |` : ""}`;
+        const taskRows = tasks.map((task) => {
+            const row = columnSelectors.map((selector, i) => {
+                const columnData = selector(task);
+                return truncateString(columnData, maxLengths[i]).padEnd(maxLengths[i]);
+            });
+
+            return `| ${row.join(' | ')} |`;
         });
+
+        return taskRows.length > 0
+            ? [headerRow, separatorRow, ...taskRows].join('\n')
+            : "No tasks available.";
     };
 
-    const newTaskRows = generateTaskRows(newTasks, maxNewLengths);
-    const activeTaskRows = generateTaskRows(activeTasks, maxActiveLengths, true);
+    // Define New Tasks Table
+    const newTasks = tasksData.tasks.filter((task) => task.status === 'New');
+    const newTaskHeaders = ["ID", "Task Name", "Age"];
+    const newTaskSelectors = [
+        (task) => task.taskId.toString(),
+        (task) => task.taskName,
+        (task) => helper.calculateAge(task.date),
+    ];
+    const newTaskDisplay = createTable("New Tasks", newTasks, newTaskHeaders, newTaskSelectors);
 
-    // Combine headers, separators, and rows into strings
-    const combineTable = (header, separator, rows) => {
-        if (rows.length === 0) return "No tasks available.";
-        return [header, separator, ...rows].join('\n');
-    };
+    // Define Active Tasks Table
+    const activeTasks = tasksData.tasks.filter((task) => task.status === 'Active');
+    const activeTaskHeaders = ["ID", "Task Name", "Age", "Assigned"];
+    const activeTaskSelectors = [
+        (task) => task.taskId.toString(),
+        (task) => task.taskName,
+        (task) => helper.calculateAge(task.date),
+        (task) => task.assigned ? users.getDisplayName(task.assigned, guildId) : "Unassigned",
+    ];
+    const activeTaskDisplay = createTable("Active Tasks", activeTasks, activeTaskHeaders, activeTaskSelectors);
 
-    const newTaskDisplay = combineTable(newHeaderData.header, newHeaderData.separator, newTaskRows);
-    const activeTaskDisplay = combineTable(activeHeaderData.header, activeHeaderData.separator, activeTaskRows);
-
-    // Add logic for Completed Tasks
+    // Define Completed Tasks Table
     const guildPath = users.getGuildPath(guildId);
     const statsFile = path.join(guildPath, 'stats.csv');
     const completedTasks = fs.readFileSync(statsFile, 'utf8')
-    .split('\n')
-    .slice(1) // Skip header row
-    .filter(line => {
-        if (!line.trim()) return false; // Skip empty lines
-        const parts = line.split(',');
-        if (parts[5] !== 'Completed') return false; // Skip non-completed tasks
-        
-        const completedDate = new Date(parts[4]); // Use the 5th column for the completed date
-        const now = new Date();
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(now.getDate() - 30);
+        .split('\n')
+        .slice(1) // Skip header row
+        .filter((line) => {
+            if (!line.trim()) return false;
+            const parts = line.split(',');
+            if (parts[5] !== 'Completed') return false;
 
-        return completedDate >= thirtyDaysAgo; // Include only tasks within the last 30 days
-    })
-    .map(line => {
-        const [userId, taskId, taskName, createdDate, completedDate] = line.split(',');
-        const age = helper.calculateAge(new Date(createdDate));
+            const completedDate = new Date(parts[4]);
+            const now = new Date();
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(now.getDate() - 30);
 
-        // Format completedDate to "MMM DD"
-        const formattedCompletedDate = new Date(completedDate.trim()).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric'
+            return completedDate >= thirtyDaysAgo;
+        })
+        .map((line) => {
+            const [userId, taskId, taskName, createdDate, completedDate] = line.split(',');
+            return {
+                userName: users.getDisplayName(userId.trim(), guildId),
+                taskId: taskId.toString(),
+                taskName: taskName.trim(),
+                age: helper.calculateAge(new Date(createdDate)),
+                completedDate: new Date(completedDate.trim()).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                }),
+            };
         });
 
-        return {
-            userName: users.getDisplayName(userId.trim(), guildId),
-            taskName: taskName.trim(),
-            age,
-            completedDate: formattedCompletedDate
-        };
-    });
+    const completedTaskHeaders = ["ID", "Task Name", "Date", "Assigned"];
+    const completedTaskSelectors = [
+        (task) => task.taskId,
+        (task) => task.taskName,
+        (task) => task.completedDate,
+        (task) => task.userName,
+    ];
+    const completedTaskDisplay = createTable("Completed Tasks", completedTasks, completedTaskHeaders, completedTaskSelectors);
 
-    const completedHeaders = ["User Name", "Task Name", "Age", "Completed Date (Last 30 days)"];
-    const maxCompletedLengths = {
-        userName: Math.max(completedHeaders[0].length, ...completedTasks.map(task => task.userName.length)),
-        taskName: Math.max(completedHeaders[1].length, ...completedTasks.map(task => task.taskName.length)),
-        age: Math.max(completedHeaders[2].length, ...completedTasks.map(task => task.age.length)),
-        completedDate: Math.max(completedHeaders[3].length, ...completedTasks.map(task => task.completedDate.length))
-    };
-
-    const completedHeader = `| ${completedHeaders[0].padEnd(maxCompletedLengths.userName)} | ${completedHeaders[1].padEnd(maxCompletedLengths.taskName)} | ${completedHeaders[2].padEnd(maxCompletedLengths.age)} | ${completedHeaders[3].padEnd(maxCompletedLengths.completedDate)} |`;
-    const completedSeparator = `|-${'-'.repeat(maxCompletedLengths.userName)}-|-${'-'.repeat(maxCompletedLengths.taskName)}-|-${'-'.repeat(maxCompletedLengths.age)}-|-${'-'.repeat(maxCompletedLengths.completedDate)}-|`;
-    const completedRows = completedTasks.map(task => {
-        return `| ${task.userName.padEnd(maxCompletedLengths.userName)} | ${task.taskName.padEnd(maxCompletedLengths.taskName)} | ${task.age.padEnd(maxCompletedLengths.age)} | ${task.completedDate.padEnd(maxCompletedLengths.completedDate)} |`;
-    });
-
-    const completedTaskDisplay = completedRows.length > 0
-        ? [completedHeader, completedSeparator, ...completedRows].join('\n')
-        : "No completed tasks.";
-
+    // Helper to send task messages
     const sendTaskMessages = async (title, taskDisplay) => {
         const chunks = helper.splitMessage(taskDisplay);
         for (let i = 0; i < chunks.length; i++) {
@@ -186,35 +173,22 @@ async function displayTaskList(message, guildId) {
         }
     };
 
-    // The commands to look for
+    // Clean up recent messages
     const commandsToDelete = ["!add", "!done", "!clear", "!take", "!init", "!helpt", "!testt"];
-
-    // Fetch the recent messages
     const messages = await message.channel.messages.fetch({ limit: 50 });
-
-    // Separate out bot and user messages
     const botMessages = messages.filter((msg) => msg.author.id === message.client.user.id);
     const userMessages = messages.filter((msg) => msg.author.id === message.author.id);
-
-    // Delete (all but the most recent) bot messages
     const botMessagesToDelete = Array.from(botMessages.values()).slice(1);
-    await Promise.all(botMessagesToDelete.map((msg) => msg.delete()));
-
-    // Filter user messages that *start with* the listed commands, then slice(1)
     const userCommandMessages = Array.from(userMessages.values()).filter((msg) =>
-    commandsToDelete.some((cmd) => msg.content.trim().toLowerCase().startsWith(cmd))
-    );
+        commandsToDelete.some((cmd) => msg.content.trim().toLowerCase().startsWith(cmd))
+    ).slice(1);
+    await Promise.all([...botMessagesToDelete, ...userCommandMessages].map((msg) => msg.delete()));
 
-    // We slice(1) so the newest message that triggered this doesn't get deleted
-    const userMessagesToDelete = userCommandMessages.slice(1);
-    await Promise.all(userMessagesToDelete.map((msg) => msg.delete()));
-
-    // Send New, Active, and Completed task lists
+    // Send the task lists
     await sendTaskMessages("New Tasks", newTaskDisplay);
     await sendTaskMessages("Active Tasks", activeTaskDisplay);
     await sendTaskMessages("Completed Tasks", completedTaskDisplay);
 }
-
 
 async function start(message, args, adminUserIds) {
     const guildId = message.guild.id;
@@ -232,47 +206,14 @@ async function start(message, args, adminUserIds) {
 
     users.handleNewMessage(message);
     if (command === 'helpt') {
-        const helpMessage = `
-        **Task Bot Commands**
-        
-        **1. !add**
-        * Add one or more tasks to the list.
-          Example (single): \`!add clean dishes\`
-          Example (multiple): \`!add "clean dishes", "do laundry", "meditate"\`
-        
-        **2. !done**
-        * Mark a task as completed.
-          Example: \`!done 2\`
-        
-        **3. !clear**
-        * Remove all completed tasks from the list.
-          Example: \`!clear\`
-        
-        **4. !delete**
-        * Permanently delete a task and log it as abandoned.
-          Example: \`!delete 3\`
-        
-        **5. !take**
-        * Take responsibility for one or more tasks (mark as active).
-          Example (single): \`!take 4\`
-          Example (multiple): \`!take 4,5,6\`
-        
-        **6. !init**
-        * Initialize the task list for the server (Admin only).
-          Example: \`!init\`
-        
-        **7. !helpt**
-        * Show this help message.
-          Example: \`!helpt\`
-        `;
-    try {
-        await message.author.send(helpMessage);
-        await message.channel.send(`${message.author}, I have sent you a DM with the command list and examples.`);
-    } catch (error) {
-        console.error("Failed to send help message via DM:", error);
-        await message.channel.send(`${message.author}, I couldn't send you a DM. Please check your privacy settings.`);
-    }
-        return;
+        const helpMessage = helper.postHelp(message);
+        try {
+            await message.author.send(helpMessage);
+            await message.channel.send(`${message.author}, I have sent you a DM with the command list and examples.`);
+        } catch (error) {
+            console.error("Failed to send help message via DM:", error);
+            await message.channel.send(`${message.author}, I couldn't send you a DM. Please check your privacy settings.`);
+        }
     }
 
     // Ensure the guild is initialized
@@ -286,51 +227,50 @@ async function start(message, args, adminUserIds) {
 
     switch (command) {
         case 'add': {
-            const quotedTaskNames = args.slice(1).join(' ').match(/"([^"]+)"/g)?.map((name) => name.replace(/"/g, '').trim());
-            const addedTasks = [];
-            const skippedTasks = [];
-        
-            (quotedTaskNames || [args.slice(1).join(' ').trim()]).forEach((taskName) => {
-                if (!taskName) return;
-        
-                const isDuplicate = tasksData.tasks.some((task) => task.taskName === taskName);
-                if (isDuplicate) {
-                    skippedTasks.push(taskName);
-                } else {
-                    const newTask = {
-                        taskId: tasksData.currentTaskId,
-                        taskName,
-                        date: new Date().toISOString(),
-                        status: 'New',
-                        assigned: '',
-                    };
-                    tasksData.tasks.push(newTask);
-                    tasksData.currentTaskId++;
-                    addedTasks.push(newTask);
-                }
-            });
-        
-            saveTasks(guildId, tasksData);
-        
-            const addedMessage = addedTasks.length > 0 ? `Tasks added:\n${helper.formatTasks(addedTasks)}` : "No new tasks added.";
-            const skippedMessage = skippedTasks.length > 0 ? `Skipped duplicates:\n${skippedTasks.join(', ')}` : "";
-        
-            await message.channel.send(`${addedMessage}${skippedMessage ? `\n${skippedMessage}` : ""}`);
+            try {
+                const { addedTasks, skippedTasks } = await helper.processTaskNames(args.slice(1), tasksData, guildId);
+                const addedMessage = addedTasks.length > 0 ? `Tasks added:\n${helper.formatTasks(addedTasks)}` : "No new tasks added.";
+                const skippedMessage = skippedTasks.length > 0 ? `Skipped duplicates:\n${skippedTasks.join(', ')}` : "";
+    
+                await message.channel.send(`${addedMessage}${skippedMessage ? `\n${skippedMessage}` : ""}`);
+            } catch (error) {
+                await message.channel.send(error.message);
+            }
             break;
-        }        
+        }       
 
         case 'done': {
             try {
-                const taskIds = helper.parseTaskIds(args);
-                const validIds = helper.validateTaskIds(taskIds, tasksData);
-                const tasks = helper.getTasksByIds(validIds, tasksData);
+                if (args.join(' ').includes('"')) {
+                    // Handle quoted task names
+                    const { addedTasks, skippedTasks } = await helper.processTaskNames(args.slice(1), tasksData, guildId);
         
-                tasks.forEach((task) => helper.updateTaskStatus(task, 'Completed', message.author.id));
-                helper.logTaskAction(tasks, guildId, message.author.id, 'Completed', logStat);
-                saveTasks(guildId, tasksData);
+                    // Immediately mark added tasks as completed
+                    addedTasks.forEach((task) => helper.updateTaskStatus(task, 'Completed', message.author.id));
+                    helper.logTaskAction(addedTasks, guildId, message.author.id, 'Completed', logStat);
         
-                const formattedTasks = helper.formatTasks(tasks);
-                await message.channel.send(`Tasks marked as completed:\n${formattedTasks}`);
+                    // Save updated tasksData
+                    saveTasks(guildId, tasksData);
+        
+                    const addedMessage = addedTasks.length > 0 ? `Tasks marked as completed:\n${helper.formatTasks(addedTasks)}` : "No new tasks completed.";
+                    const skippedMessage = skippedTasks.length > 0 ? `Skipped duplicates:\n${skippedTasks.join(', ')}` : "";
+        
+                    await message.channel.send(`${addedMessage}${skippedMessage ? `\n${skippedMessage}` : ""}`);
+                } else {
+                    // Handle numeric task IDs
+                    const taskIds = helper.parseTaskIds(args);
+                    const validIds = helper.validateTaskIds(taskIds, tasksData);
+                    const tasks = helper.getTasksByIds(validIds, tasksData);
+        
+                    tasks.forEach((task) => helper.updateTaskStatus(task, 'Completed', message.author.id));
+                    helper.logTaskAction(tasks, guildId, message.author.id, 'Completed', logStat);
+        
+                    // Save updated tasksData
+                    saveTasks(guildId, tasksData);
+        
+                    const formattedTasks = helper.formatTasks(tasks);
+                    await message.channel.send(`Tasks marked as completed:\n${formattedTasks}`);
+                }
             } catch (error) {
                 await message.channel.send(error.message);
             }
@@ -346,7 +286,7 @@ async function start(message, args, adminUserIds) {
                 const deletedTasks = helper.getTasksByIds(validIds, tasksData);
                 helper.logTaskAction(deletedTasks, guildId, message.author.id, 'Abandoned', logStat);
                 tasksData.tasks = tasksData.tasks.filter((task) => !validIds.includes(task.taskId));
-                saveTasks(guildId, tasksData);
+                helper.saveTasks(guildId, tasksData);
         
                 const deletedCount = initialCount - tasksData.tasks.length;
                 await message.channel.send(`Deleted ${deletedCount} task(s).`);
@@ -363,7 +303,7 @@ async function start(message, args, adminUserIds) {
                 const tasks = helper.getTasksByIds(validIds, tasksData);
         
                 tasks.forEach((task) => helper.assignTask(task, message.author.id));
-                saveTasks(guildId, tasksData);
+                helper.saveTasks(guildId, tasksData);
         
                 const formattedTasks = helper.formatTasks(tasks);
                 await message.channel.send(`Tasks taken by you:\n${formattedTasks}`);
@@ -383,6 +323,7 @@ async function start(message, args, adminUserIds) {
     }
 
     // Refresh and display the task list
+    await helper.cleanupTasks(guildId, tasksData);
     await displayTaskList(message, guildId);
 }
 
