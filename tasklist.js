@@ -250,7 +250,7 @@ async function start(message, args, adminUserIds) {
                     helper.logTaskAction(addedTasks, guildId, message.author.id, 'Completed', logStat);
         
                     // Save updated tasksData
-                    saveTasks(guildId, tasksData);
+                    helper.saveTasks(guildId, tasksData);
         
                     const addedMessage = addedTasks.length > 0 ? `Tasks marked as completed:\n${helper.formatTasks(addedTasks)}` : "No new tasks completed.";
                     const skippedMessage = skippedTasks.length > 0 ? `Skipped duplicates:\n${skippedTasks.join(', ')}` : "";
@@ -266,7 +266,7 @@ async function start(message, args, adminUserIds) {
                     helper.logTaskAction(tasks, guildId, message.author.id, 'Completed', logStat);
         
                     // Save updated tasksData
-                    saveTasks(guildId, tasksData);
+                    helper.saveTasks(guildId, tasksData);
         
                     const formattedTasks = helper.formatTasks(tasks);
                     await message.channel.send(`Tasks marked as completed:\n${formattedTasks}`);
