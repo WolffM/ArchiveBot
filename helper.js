@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const users = require('./users');
 const csvParser = require('csv-parser');
+const { createObjectCsvWriter } = require('csv-writer');
 
 function parseTaskIds(args) {
     const rawInput = args.slice(1).join(' ').trim(); // Join everything after the command
@@ -104,6 +105,53 @@ function updateTaskStatus(task, status, userId = null) {
     }
     task.status = status;
     return task;
+}
+
+function readLogEntries(logFilePath) {
+    if (!fs.existsSync(logFilePath)) {
+        return []; // No log file yet
+    }
+
+    const logRaw = fs.readFileSync(logFilePath, 'utf8');
+    // We can do a quick manual parse if we prefer:
+    // Or we can do a streaming parse. 
+    // For simplicity, let's do a synchronous parse with csv-parser or csv-parse.
+
+    const lines = logRaw.split('\n').filter(line => line.trim() !== '');
+    if (lines.length <= 1) return []; // Only headers or empty
+
+    const headers = lines[0].split(',').map(h => h.trim());
+    const records = [];
+    for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(',');
+        if (row.length < 4) continue; // skip incomplete lines
+        const record = {};
+        headers.forEach((header, index) => {
+            record[header] = row[index];
+        });
+        records.push(record);
+    }
+    return records;
+}
+
+async function appendLogEntry(logFilePath, newEntry) {
+    const csvWriterInstance = createObjectCsvWriter({
+        path: logFilePath,
+        append: true,
+        header: [
+            { id: 'Task', title: 'Task' },
+            { id: 'Guild Name', title: 'Guild Name' },
+            { id: 'Channel ID', title: 'Channel ID' },
+            { id: 'Timestamp', title: 'Timestamp' },
+        ],
+    });
+    await csvWriterInstance.writeRecords([newEntry]);
+}
+
+function ensureDirectoryExists(dirPath) {
+    if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+    }
 }
 
 function validateTaskIds(taskIds, tasksData) {
@@ -243,4 +291,31 @@ function postHelp() {
         return helpMessage;
 }
 
-module.exports = { cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 
+// Helper to get just the Year
+function getYear(ts) {
+    return new Date(ts).getUTCFullYear().toString();
+}
+
+// Helper: a simple map from domain to “friendly provider” (adjust as needed)
+function detectLinkProvider(url) {
+    // e.g. "https://www.youtube.com/watch?v=abc123"
+    // parse domain
+    try {
+        const { host } = new URL(url);
+        if (host.includes('youtube')) return 'Youtube';
+        if (host.includes('youtu.be')) return 'Youtube';
+        if (host.includes('tiktok')) return 'Tiktok';
+        // add more logic if desired, or just return host
+        return host;
+    } catch {
+        return 'unknown';
+    }
+}
+
+function getMonthYear(ts) {
+    const d = new Date(ts);
+    // e.g. "2025-01" or "01-2025"
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+module.exports = { getYear, detectLinkProvider, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 

@@ -284,6 +284,9 @@ async function start(message, args, adminUserIds) {
         
                 const initialCount = tasksData.tasks.length;
                 const deletedTasks = helper.getTasksByIds(validIds, tasksData);
+                if(deletedTasks.length > 0){
+                    
+                }
                 helper.logTaskAction(deletedTasks, guildId, message.author.id, 'Abandoned', logStat);
                 tasksData.tasks = tasksData.tasks.filter((task) => !validIds.includes(task.taskId));
                 helper.saveTasks(guildId, tasksData);
