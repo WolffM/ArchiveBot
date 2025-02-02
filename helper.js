@@ -296,26 +296,10 @@ function getYear(ts) {
     return new Date(ts).getUTCFullYear().toString();
 }
 
-// Helper: a simple map from domain to “friendly provider” (adjust as needed)
-function detectLinkProvider(url) {
-    // e.g. "https://www.youtube.com/watch?v=abc123"
-    // parse domain
-    try {
-        const { host } = new URL(url);
-        if (host.includes('youtube')) return 'Youtube';
-        if (host.includes('youtu.be')) return 'Youtube';
-        if (host.includes('tiktok')) return 'Tiktok';
-        // add more logic if desired, or just return host
-        return host;
-    } catch {
-        return 'unknown';
-    }
-}
-
 function getMonthYear(ts) {
     const d = new Date(ts);
     // e.g. "2025-01" or "01-2025"
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-module.exports = { getYear, detectLinkProvider, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 
+module.exports = { getYear, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 
