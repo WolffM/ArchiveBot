@@ -1,69 +1,63 @@
 const archive = require('./archive');
 
 const adminCommandsList = {
-    archivepics: {
-        description: 'Archives images from the channel',
+    archivechannel: {
+        description: 'Archives content from the current channel',
+        options: [
+            {
+                name: 'content',
+                description: 'What content to archive',
+                type: 3, // STRING type
+                required: true,
+                choices: [
+                    { name: 'Messages Only', value: 'messages' },
+                    { name: 'Attachments Only', value: 'attachments' },
+                    { name: 'Both', value: 'both' }
+                ]
+            }
+        ],
         execute: async (interaction) => {
             try {
-                await archive.handleArchivePicsCommand(interaction);
+                const contentOption = interaction.options.getString('content');
+                await archive.handleArchiveChannelCommand(interaction, contentOption);
             } catch (error) {
-                console.error('Error in archivepics command:', error);
+                console.error('Error in archivechannel command:', error);
                 const reply = interaction.deferred ? 
                     interaction.editReply : 
                     interaction.reply;
                 await reply.call(interaction, {
-                    content: 'An error occurred while archiving images.',
+                    content: 'An error occurred while archiving the channel.',
                     ephemeral: true
                 });
             }
         },
     },
-    archiveall: {
-        description: 'Archives all messages from all channels in the server',
-        execute: async (interaction) => {
-            try {
-                await archive.handleArchiveAllCommand(interaction);
-            } catch (error) {
-                console.error('Error in archiveall command:', error);
-                const reply = interaction.deferred ? 
-                    interaction.editReply : 
-                    interaction.reply;
-                await reply.call(interaction, {
-                    content: 'An error occurred while archiving channels.',
-                    ephemeral: true
-                });
+    archiveserver: {
+        description: 'Archives content from all channels in the server',
+        options: [
+            {
+                name: 'content',
+                description: 'What content to archive',
+                type: 3, // STRING type
+                required: true,
+                choices: [
+                    { name: 'Messages Only', value: 'messages' },
+                    { name: 'Attachments Only', value: 'attachments' },
+                    { name: 'Both', value: 'both' }
+                ]
             }
-        },
-    },
-    archivemsgs: {
-        description: 'Archives messages from the current channel',
+        ],
         execute: async (interaction) => {
             try {
-                await archive.handleArchiveMsgsCommand(interaction);
+                const contentOption = interaction.options.getString('content');
+                await archive.handleArchiveServerCommand(interaction, contentOption);
             } catch (error) {
-                console.error('Error in archivemsgs command:', error);
+                console.error('Error in archiveserver command:', error);
                 const reply = interaction.deferred ? 
                     interaction.editReply : 
                     interaction.reply;
                 await reply.call(interaction, {
-                    content: 'An error occurred while archiving messages.',
-                    ephemeral: true
-                });
-            }
-        },
-    },
-    initlogs: {
-        description: 'Initialize logs from existing archives',
-        execute: async (interaction) => {
-            try {
-                await archive.updateReactionData(interaction);
-            } catch (error) {
-                console.error('Error in initlogs command:', error);
-                const reply = interaction.deferred ? 
-                    interaction.editReply : 
-                    interaction.reply;
-                await reply.call(interaction, {
-                    content: 'An error occurred while initializing logs.',
+                    content: 'An error occurred while archiving the server.',
                     ephemeral: true
                 });
             }

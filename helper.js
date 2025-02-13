@@ -297,21 +297,6 @@ function getMonthYear(ts) {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-/**
- * Generic Utility Functions
- * 
- * File Operations:
- * - ensureDirectoryExists: Directory creation
- * - loadJsonFile: Safe JSON file loading
- * - saveJsonFile: Safe JSON file saving
- * - downloadFile: Generic file download
- * 
- * Data Processing:
- * - scrubEmptyFields: Clean object data
- * - delay: Async delay utility
- * - logProgress: Generic progress logging
- */
-
 function loadJsonFile(filePath, defaultValue = {}) {
     return fs.existsSync(filePath) ? 
         JSON.parse(fs.readFileSync(filePath)) : 
