@@ -40,7 +40,6 @@ async function handleArchiveChannelCommand(interaction, contentOption) {
 
         const archiveFilePath = await archiveChannel(interaction.channel, options);
         if (archiveFilePath) {
-            await updateArchiveWithReactions(interaction.channel, archiveFilePath);
             await interaction.editReply(`Successfully archived channel: ${interaction.channel.name}`);
         } else {
             await interaction.editReply('No new content to archive.');
@@ -74,9 +73,6 @@ async function handleArchiveServerCommand(interaction, contentOption) {
             console.log(`Archiving channel: ${channel.name} (${channelId})`);
 
             const archiveFilePath = await archiveChannel(channel, options);
-            if (archiveFilePath) {
-                await updateArchiveWithReactions(channel, archiveFilePath);
-            }
             
             processedCount++;
             if (processedCount % 5 === 0) {
@@ -99,155 +95,176 @@ async function handleArchiveServerCommand(interaction, contentOption) {
 async function getLastArchiveTime(guildId, channelId) {
     const logPath = path.join(__dirname, 'Output', 'log.csv');
     if (!fs.existsSync(logPath)) {
-        console.log('No log file found, starting from 0');
         return 0;
     }
 
-    try {
-        const content = fs.readFileSync(logPath, 'utf-8');
-        const lines = content.split('\n').filter(line => line.trim());
+    const content = fs.readFileSync(logPath, 'utf-8');
+    const lines = content.split('\n').filter(line => line.trim());
+    
+    // Skip header
+    let lastTime = 0;
+    for (let i = 1; i < lines.length; i++) {
+        const [task, gId, cId, timestamp] = lines[i].split(',');
         
-        // Skip header
-        if (lines.length <= 1) {
-            console.log('No log entries found, starting from 0');
-            return 0;
-        }
-
-        // Find the last archive entry for this channel and guild
-        for (let i = lines.length - 1; i > 0; i--) {
-            const [task, gId, channelID, timestamp] = lines[i].split(',');
-            console.log(`Checking entry: task=${task}, guildId=${gId}, channel=${channelID}, looking for guildId=${guildId} channelId=${channelId}`);
-            if (gId === guildId && channelID === channelId) {
-                const time = parseInt(timestamp);
-                console.log(`Found last archive time: ${new Date(time)}`);
-                return time;
+        // Only look at entries for this specific channel
+        if (gId === guildId && cId === channelId) {
+            console.log(`Found matching entry for channel ${channelId}: ${task} at ${new Date(parseInt(timestamp))}`);
+            const time = parseInt(timestamp);
+            if (time > lastTime) {
+                lastTime = time;
             }
         }
-        console.log('No previous archive found for this channel');
-        return 0;
-    } catch (error) {
-        console.error('Error reading log file:', error);
-        return 0;
+    }
+
+    // If lastTime is in the future, it's invalid
+    const now = Date.now();
+    if (lastTime > now) {
+        console.log(`Found future timestamp ${new Date(lastTime)}, resetting to 0`);
+        lastTime = 0;
+    }
+
+    console.log(`Last archive time for channel ${channelId}: ${new Date(lastTime)}`);
+    return lastTime;
+}
+
+async function updateReactionData(messages) {
+    console.log('Updating reaction data for messages...');
+    const messageMap = new Map();
+
+    // Batch fetch messages in groups of 100
+    for (let i = 0; i < messages.length; i += 100) {
+        const batch = messages.slice(i, i + 100);
+        try {
+            const fetchedMessages = await batch[0].channel.messages.fetch({ 
+                messages: batch.map(m => m.id)
+            });
+            fetchedMessages.forEach(msg => messageMap.set(msg.id, msg));
+        } catch (error) {
+            console.error(`Error fetching message batch ${i}-${i + 100}:`, error);
+        }
+        await delay(1000); // Rate limit protection
+    }
+
+    // Update reaction data for each message
+    for (const message of messages) {
+        const fetchedMessage = messageMap.get(message.id);
+        if (fetchedMessage && fetchedMessage.reactions.cache.size > 0) {
+            const reactions = [];
+            for (const reaction of fetchedMessage.reactions.cache.values()) {
+                try {
+                    const users = await reaction.users.fetch();
+                    reactions.push({
+                        emoji: reaction.emoji.name,
+                        count: reaction.count,
+                        users: users.map(user => user.id)
+                    });
+                } catch (error) {
+                    console.error(`Error fetching users for reaction on message ${message.id}:`, error);
+                }
+            }
+            message.reactions = reactions;
+            console.log(`Reactions added for message ID: ${message.id}`);
+        }
     }
 }
 
-async function updateReactionData() {
-    const outputDir = path.join(__dirname, 'Output');
-    const logFilePath = path.join(outputDir, 'log.csv');
+async function analyzeArchiveSchema(channelPath) {
+    console.log(`Analyzing schema for channel: ${channelPath}`);
+    let allFields = new Set();
+    
+    const files = fs.readdirSync(channelPath);
+    const archiveFiles = files.filter(f => f.startsWith('archive_'));
+    const authorsFiles = files.filter(f => f.startsWith('authors_'));
 
-    if (!fs.existsSync(logFilePath)) {
-        console.error(`Log file not found: ${logFilePath}`);
+    for (const archiveFile of archiveFiles) {
+        const timestamp = archiveFile.split('_')[1].split('.')[0];
+        const authorsFile = `authors_${timestamp}.json`;
+
+        if (!authorsFiles.includes(authorsFile)) continue;
+
+        console.log(`Analyzing ${archiveFile}`);
+        const archiveData = JSON.parse(fs.readFileSync(path.join(channelPath, archiveFile)));
+        const authorsData = JSON.parse(fs.readFileSync(path.join(channelPath, authorsFile)));
+
+        // Analyze one merged message to get all possible fields
+        const sampleMsg = archiveData[0];
+        if (sampleMsg) {
+            const author = Object.values(authorsData).find(a => 
+                a.msgIds.includes(sampleMsg.id)
+            );
+
+            const mergedMsg = {
+                ...sampleMsg,
+                author_id: author?.id,
+                author_username: author?.username,
+                author_globalName: author?.globalName,
+                guild_id: path.basename(path.dirname(channelPath)),
+                channel_name: path.basename(channelPath).split('_')[0],
+                channel_id: path.basename(channelPath).split('_')[1],
+                archive_file: archiveFile
+            };
+
+            // Collect all fields recursively
+            function addFields(obj, prefix = '') {
+                if (!obj) return;
+                Object.entries(obj).forEach(([key, value]) => {
+                    const fieldName = prefix ? `${prefix}_${key}` : key;
+                    if (typeof value === 'object' && value !== null) {
+                        addFields(value, fieldName);
+                    } else {
+                        allFields.add(fieldName);
+                    }
+                });
+            }
+
+            addFields(mergedMsg);
+        }
+    }
+
+    const fields = Array.from(allFields);
+    console.log('Found fields:', fields);
+    return fields;
+}
+
+async function initializeDatabaseIfNeeded(guildId) {
+    const dbPath = path.join(__dirname, 'Output', guildId, 'archive.db');
+    
+    // If database exists, we're done
+    if (fs.existsSync(dbPath)) {
+        console.log('Database already exists');
         return;
     }
 
-    // Read and parse the log file
-    const logEntries = fs.readFileSync(logFilePath, 'utf-8').split('\n').slice(1); // Skip header
-    const processedReactions = new Set(
-        logEntries
-            .map(line => line.split(','))
-            .filter(entry => entry.length === 4 && entry[0] === 'reaction') // Filter for "reaction" tasks
-            .map(([_, guildName, channelId, timestamp]) => `${guildName}_${channelId}_${timestamp}`)
-    );
+    console.log('Creating new database with schema...');
+    const db = await open({
+        filename: dbPath,
+        driver: sqlite3.Database
+    });
 
-    const taskEntries = logEntries
-        .map(line => line.split(','))
-        .filter(entry => entry.length === 4 && entry[0] === 'archive'); // Filter for "archive" tasks
+    const createTableSQL = `
+        CREATE TABLE IF NOT EXISTS raw_archive (
+            id TEXT PRIMARY KEY,
+            createdTimestamp INTEGER,
+            content TEXT,
+            author_id TEXT,
+            guild_id TEXT,
+            channel_id TEXT,
+            channel_name TEXT,
+            archive_file TEXT,
+            mentions TEXT,      -- JSON object of mentions
+            reference TEXT,     -- JSON object of message reference
+            reactions TEXT,     -- JSON array of reaction objects
+            embeds TEXT,        -- JSON object of embeds
+            data TEXT,          -- JSON field for any additional properties
+            UNIQUE(id, guild_id)
+        );
+    `;
 
-    const newLogEntries = [];
+    console.log('Creating table with SQL:', createTableSQL);
+    await db.exec(createTableSQL);
+    await db.close();
 
-    for (const [task, guildName, channelId, timestamp] of taskEntries) {
-        // Skip processing if a "reaction" task already exists for this archive
-        const taskKey = `${guildName}_${channelId}_${timestamp}`;
-        if (processedReactions.has(taskKey)) {
-            console.log(`Skipping reactions for already processed archive: ${taskKey}`);
-            continue;
-        }
-
-        // Find the channel directory based on channel ID
-        const guildPath = path.join(outputDir, guildName);
-        const channelDirs = fs.readdirSync(guildPath, { withFileTypes: true }).filter(dir => dir.isDirectory());
-        const channelDirName = channelDirs.find(dir => dir.name.endsWith(`_${channelId}`))?.name;
-
-        if (!channelDirName) {
-            console.error(`Channel directory not found for ID: ${channelId}`);
-            continue;
-        }
-
-        const archiveFilePath = path.join(guildPath, channelDirName, `archive_${timestamp}.json`);
-
-        if (!fs.existsSync(archiveFilePath)) {
-            console.error(`Archive file not found: ${archiveFilePath}`);
-            continue;
-        }
-
-        console.log(`Processing reactions for archive file: ${archiveFilePath}`);
-
-        const archiveData = JSON.parse(fs.readFileSync(archiveFilePath, 'utf-8'));
-        const updatedMessages = [];
-
-        for (const message of archiveData) {
-            const messageId = message.id;
-
-            try {
-                const fetchedMessage = await fetchMessageFromDiscord(channelId, messageId); // Assuming fetchMessageFromDiscord is implemented
-                const reactions = [];
-
-                if (fetchedMessage.reactions.cache.size > 0) {
-                    for (const reaction of fetchedMessage.reactions.cache.values()) {
-                        const users = await reaction.users.fetch(); // Fetch users who reacted
-                        const reactionData = {
-                            emoji: reaction.emoji.name,
-                            count: reaction.count,
-                            users: users.map(user => user.id), // List of user IDs
-                        };
-
-                        reactions.push(reactionData);
-                    }
-                }
-
-                // Update the message with reaction data
-                message.reactions = reactions;
-                console.log(`Reactions added for message ID: ${messageId}`);
-            } catch (error) {
-                console.error(`Error fetching reactions for message ID: ${messageId}`, error);
-            }
-
-            updatedMessages.push(message);
-        }
-
-        // Overwrite the archive file with updated messages
-        fs.writeFileSync(archiveFilePath, JSON.stringify(updatedMessages, null, 2));
-        console.log(`Updated reactions saved to: ${archiveFilePath}`);
-
-        // Add a new log entry for the "reaction" task
-        newLogEntries.push({
-            task: 'reaction',
-            guildName,
-            channelId,
-            timestamp,
-        });
-    }
-
-    // Append new log entries to log.csv
-    if (newLogEntries.length > 0) {
-        const csvWriterInstance = csvWriter({
-            path: logFilePath,
-            append: true,
-            header: [
-                { id: 'task', title: 'Task' },
-                { id: 'guildName', title: 'Guild Name' },
-                { id: 'channelId', title: 'Channel ID' },
-                { id: 'timestamp', title: 'Timestamp' },
-            ],
-        });
-
-        await csvWriterInstance.writeRecords(newLogEntries);
-        console.log(`Log updated with ${newLogEntries.length} "reaction" entries.`);
-    } else {
-        console.log('No new "reaction" entries to log.');
-    }
-
-    console.log('All archives processed for reaction data.');
+    console.log('Database initialized successfully');
 }
 
 async function archiveChannel(channel, options = { saveMessages: true, saveAttachments: true }) {
@@ -259,100 +276,109 @@ async function archiveChannel(channel, options = { saveMessages: true, saveAttac
     const folderName = `${channel.name}_${channel.id}`;
     const baseFolderPath = path.join(__dirname, 'Output', channel.guild.id, folderName);
     const attachmentsFolderPath = path.join(baseFolderPath, 'attachments');
-    
     ensureDirectoryExists(baseFolderPath);
-    ensureDirectoryExists(attachmentsFolderPath);
-
-    const archiveFileName = `archive_${timestamp}.json`;
-    const authorsFileName = `authors_${timestamp}.json`;
-    const archivePath = path.join(baseFolderPath, archiveFileName);
-    const authorsPath = path.join(baseFolderPath, authorsFileName);
-
-    let allMessages = [];
-    let lastMessageId = null;
-    let messageCount = 0;
-
-    while (true) {
-        const messages = await fetchMessageBatch(channel, lastMessageId, lastArchiveTime);
-        console.log(`Batch received: ${messages.length} messages`);
-        if (messages.length === 0) break;
-
-        // Changed filtering logic to be more permissive
-        const filteredMessages = messages;  // Remove filtering since options are both true by default
-        console.log(`Filtered messages count: ${filteredMessages.length}`);
-        
-        allMessages = allMessages.concat(filteredMessages);
-        lastMessageId = messages[messages.length - 1].id;
-        messageCount += messages.length;
-        
-        if (options.saveAttachments) {
-            await processMessagesMetadata(messages, attachmentsFolderPath);
-        }
-        logProgress(channel.name, messageCount, allMessages.length);
+    if (options.saveAttachments) {
+        ensureDirectoryExists(attachmentsFolderPath);
     }
 
-    console.log(`Total accumulated messages: ${allMessages.length}`);
-    
+    // Get all messages since last archive
+    const allMessages = await fetchMessageBatch(channel, lastArchiveTime);
     if (allMessages.length === 0) {
         console.log(`No new messages to archive in channel: ${channel.name}`);
         return null;
     }
 
-    console.log(`Saving ${allMessages.length} messages to ${archivePath}`);
+    console.log(`Found ${allMessages.length} new messages to archive`);
 
-    // Save messages and authors files
+    // Handle attachments if enabled
+    if (options.saveAttachments) {
+        console.log('Downloading attachments...');
+        for (const message of allMessages) {
+            if (message.attachments.size > 0) {
+                for (const [id, attachment] of message.attachments) {
+                    const attachmentPath = path.join(attachmentsFolderPath, attachment.name);
+                    try {
+                        await downloadFile(attachment.url, attachmentPath);
+                        console.log(`Downloaded attachment: ${attachment.name}`);
+                    } catch (error) {
+                        console.error(`Failed to download attachment ${attachment.name}:`, error);
+                    }
+                    await delay(1000); // Rate limit protection
+                }
+            }
+        }
+    }
+
+    // Update reactions
+    console.log('Updating reaction data...');
+    await updateReactionData(allMessages);
+
+    // Save to files
+    console.log(`Saving ${allMessages.length} messages to archive`);
+    const archivePath = path.join(baseFolderPath, `archive_${timestamp}.json`);
+    const authorsPath = path.join(baseFolderPath, `authors_${timestamp}.json`);
+
     const scrubbedMessages = scrubMessages(allMessages);
     const authorsMap = createAuthorsMap(allMessages);
     
     saveJsonFile(archivePath, scrubbedMessages);
     saveJsonFile(authorsPath, authorsMap);
 
-    const db = await initializeDatabase(channel.guild.id);
-    await insertArchiveData(db, scrubbedMessages, channel);
-    await db.close();
+    // Log the archive step
+    const logPath = path.join(__dirname, 'Output', 'log.csv');
+    if (!fs.existsSync(logPath)) {
+        ensureDirectoryExists(path.dirname(logPath));
+        fs.writeFileSync(logPath, 'Task,GuildId,ChannelID,Timestamp\n');
+    }
+    fs.appendFileSync(logPath, `archive,${channel.guild.id},${channel.id},${timestamp}\n`);
 
-    await updateArchiveLog(channel, timestamp);
+    // Insert into database
+    console.log('Inserting new archive into database...');
+    const db = await open({
+        filename: path.join(__dirname, 'Output', channel.guild.id, 'archive.db'),
+        driver: sqlite3.Database
+    });
+    await processNewArchiveFiles(db, channel.guild.id, baseFolderPath);
+    await db.close();
 
     console.log(`Archived ${allMessages.length} new messages from channel: ${channel.name}`);
     return archivePath;
 }
 
-async function fetchMessageBatch(channel, lastMessageId, lastArchiveTime) {
-    const options = { limit: 100 };
-    if (lastMessageId) options.before = lastMessageId;
+async function fetchMessageBatch(channel, lastArchiveTime) {
+    console.log(`Fetching messages after ${new Date(lastArchiveTime)}`);
+    const allMessages = [];
+    let lastId = null;
+    let keepFetching = true;
 
-    try {
-        const fetchedMessages = await channel.messages.fetch(options);
-        console.log(`Fetched ${fetchedMessages.size} messages`);
-        
-        if (fetchedMessages.size === 0) return [];
-
-        const messages = Array.from(fetchedMessages.values());
-        const oldestMessage = messages[messages.length - 1];
-        const newestMessage = messages[0];
-        
-        console.log(`Message range: ${new Date(newestMessage.createdTimestamp)} to ${new Date(oldestMessage.createdTimestamp)}`);
-        console.log(`Last archive time: ${new Date(lastArchiveTime)}`);
-
-        if (lastArchiveTime > 0) {
-            const newMessages = messages.filter(msg => {
-                const isNewer = msg.createdTimestamp > lastArchiveTime;
-                if (isNewer) {
-                    console.log(`Found newer message: ${msg.id} from ${new Date(msg.createdTimestamp)}`);
-                }
-                return isNewer;
-            });
-            console.log(`Found ${newMessages.length} messages newer than last archive`);
-            // Always return an array, even if empty
-            return newMessages;  
+    while (keepFetching) {
+        const options = { limit: 100 };
+        if (lastId) {
+            options.before = lastId;
         }
 
-        return messages;
-    } catch (error) {
-        console.error(`Error fetching messages:`, error);
-        await delay(5000);
-        return [];
+        const messages = await channel.messages.fetch(options);
+        if (messages.size === 0) {
+            break;
+        }
+
+        for (const message of messages.values()) {
+            // Convert both timestamps to milliseconds for comparison
+            if (message.createdTimestamp > lastArchiveTime) {
+                allMessages.push(message);
+                console.log(`Found message: ${message.id} from ${new Date(message.createdTimestamp)}`);
+            } else {
+                keepFetching = false;
+                break;
+            }
+        }
+
+        lastId = messages.last()?.id;
+        await delay(1000); // Rate limit protection
     }
+
+    console.log(`Fetched ${allMessages.length} messages`);
+    return allMessages;
 }
 
 async function processMessagesMetadata(messages, attachmentsFolderPath) {
@@ -374,12 +400,34 @@ async function processMessagesMetadata(messages, attachmentsFolderPath) {
 }
 
 function scrubMessages(messages) {
-    return messages.map(msg => ({
-        id: msg.id,
-        createdTimestamp: msg.createdTimestamp,
-        content: msg.content,
-        nonce: msg.nonce || undefined
-    }));
+    return messages.map(msg => {
+        // Get basic message data
+        const scrubbed = {
+            id: msg.id,
+            createdTimestamp: msg.createdTimestamp,
+            content: msg.content
+        };
+
+        // Clean reactions format
+        if (msg.reactions && Array.isArray(msg.reactions)) {
+            scrubbed.reactions = msg.reactions.map(reaction => ({
+                emoji: reaction.emoji,
+                count: reaction.count,
+                users: reaction.users
+            }));
+        }
+
+        // Clean reference format for replies
+        if (msg.reference) {
+            scrubbed.reference = {
+                messageId: msg.reference.messageId,
+                channelId: msg.reference.channelId,
+                guildId: msg.reference.guildId
+            };
+        }
+
+        return scrubbed;
+    });
 }
 
 function createAuthorsMap(messages) {
@@ -400,143 +448,142 @@ function createAuthorsMap(messages) {
     return authorsMap;
 }
 
-async function updateArchiveLog(channel, timestamp) {
-    const logPath = path.join(__dirname, 'Output', 'log.csv');
-    
-    // Create log file with headers if it doesn't exist
-    if (!fs.existsSync(logPath)) {
-        ensureDirectoryExists(path.dirname(logPath));
-        fs.writeFileSync(logPath, 'Task,GuildId,ChannelID,Timestamp\n');
-    }
-
-    // Add new log entry
-    const logEntry = `archive,${channel.guild.id},${channel.id},${timestamp}\n`;
-    fs.appendFileSync(logPath, logEntry);
-    console.log(`Updated log: ${logEntry.trim()}`);
-}
-
-// Mock function to fetch a message from Discord
-async function fetchMessageFromDiscord(channelId, messageId) {
-    const channel = await client.channels.fetch(channelId); // Fetch the channel
-    return channel.messages.fetch(messageId); // Fetch the message
-}
-
-async function analyzeArchiveSchema() {
-    const outputDir = path.join(__dirname, 'Output');
-    const guildDirs = fs.readdirSync(outputDir).filter(f => 
-        fs.statSync(path.join(outputDir, f)).isDirectory()
-    );
-
-    const schema = new Set();
-    
-    for (const guildDir of guildDirs) {
-        const guildPath = path.join(outputDir, guildDir);
-        const channelDirs = fs.readdirSync(guildPath).filter(f => 
-            fs.statSync(path.join(guildPath, f)).isDirectory() && 
-            !f.includes('attachments')
-        );
-
-        for (const channelDir of channelDirs) {
-            const channelPath = path.join(guildPath, channelDir);
-            const archiveFiles = fs.readdirSync(channelPath).filter(f => 
-                f.startsWith('archive_') && f.endsWith('.json')
-            );
-
-            for (const archiveFile of archiveFiles) {
-                const messages = loadJsonFile(path.join(channelPath, archiveFile));
-                for (const msg of messages) {
-                    collectFields(msg, '', schema);
+async function processNewArchiveFiles(db, guildId, channelPath) {
+    try {
+        // Get list of processed files from log
+        const logPath = path.join(__dirname, 'Output', 'log.csv');
+        const processedTimestamps = new Set();
+        if (fs.existsSync(logPath)) {
+            const logContent = fs.readFileSync(logPath, 'utf-8');
+            const lines = logContent.split('\n').filter(line => line.trim());
+            
+            // Skip header
+            for (let i = 1; i < lines.length; i++) {
+                const [task, gId, cId, timestamp] = lines[i].split(',');
+                if (task.toLowerCase() === 'databaseinsertion' && 
+                    gId === guildId && 
+                    cId === path.basename(channelPath).split('_')[1]) {
+                    processedTimestamps.add(parseInt(timestamp));
                 }
             }
         }
-    }
 
-    return Array.from(schema);
-}
+        // Get list of unprocessed archive files
+        const files = fs.readdirSync(channelPath)
+            .filter(file => file.startsWith('archive_'))
+            .map(file => {
+                const timestamp = parseInt(file.replace('archive_', '').replace('.json', ''));
+                return {
+                    archiveFile: file,
+                    authorsFile: file.replace('archive_', 'authors_'),
+                    timestamp: timestamp
+                };
+            })
+            .filter(file => {
+                // Check if this file's timestamp is newer than any processed timestamp
+                const isProcessed = Array.from(processedTimestamps).some(
+                    processedTime => Math.abs(file.timestamp - processedTime) < 10000 // Within 10 seconds
+                );
+                if (isProcessed) {
+                    console.log(`Skipping already processed file: ${file.archiveFile}`);
+                    return false;
+                }
+                return true;
+            });
 
-function collectFields(obj, prefix, schema) {
-    for (const [key, value] of Object.entries(obj)) {
-        const fieldName = prefix ? `${prefix}_${key}` : key;
+        if (files.length === 0) {
+            console.log('No new archive files to process');
+            return;
+        }
+
+        console.log(`Found ${files.length} new archive files to process`);
+        await db.run('BEGIN TRANSACTION');
+
+        for (const file of files) {
+            const archivePath = path.join(channelPath, file.archiveFile);
+            const authorsPath = path.join(channelPath, file.authorsFile);
+
+            if (!fs.existsSync(archivePath) || !fs.existsSync(authorsPath)) {
+                console.log(`Skipping incomplete archive set: ${file.archiveFile}`);
+                continue;
+            }
+
+            console.log(`Processing new archive: ${file.archiveFile} (timestamp: ${new Date(file.timestamp)})`);
+            const archiveData = JSON.parse(fs.readFileSync(archivePath, 'utf-8'));
+            const authorsData = JSON.parse(fs.readFileSync(authorsPath, 'utf-8'));
+
+            for (const msg of archiveData) {
+                const author = Object.values(authorsData).find(a => 
+                    a.msgIds.includes(msg.id)
+                );
+
+                if (author) {
+                    const coreFields = {
+                        id: msg.id,
+                        createdTimestamp: msg.createdTimestamp,
+                        content: msg.content,
+                        author_id: author.id,
+                        guild_id: guildId,
+                        channel_id: path.basename(channelPath).split('_')[1],
+                        channel_name: path.basename(channelPath).split('_')[0],
+                        archive_file: file.archiveFile,
+                        mentions: JSON.stringify(msg.mentions || {}),
+                        reference: JSON.stringify(msg.reference || {}),
+                        reactions: JSON.stringify(msg.reactions || []),
+                        embeds: JSON.stringify(msg.embeds || {})
+                    };
+
+                    const extraData = {};
+                    for (const [key, value] of Object.entries(msg)) {
+                        if (!coreFields.hasOwnProperty(key) && 
+                            !['mentions', 'reference', 'reactions', 'embeds'].includes(key)) {
+                            extraData[key] = value;
+                        }
+                    }
+
+                    await db.run(`
+                        INSERT OR REPLACE INTO raw_archive 
+                        (id, createdTimestamp, content, author_id, guild_id, 
+                         channel_id, channel_name, archive_file, mentions,
+                         reference, reactions, embeds, data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        coreFields.id,
+                        coreFields.createdTimestamp,
+                        coreFields.content,
+                        coreFields.author_id,
+                        coreFields.guild_id,
+                        coreFields.channel_id,
+                        coreFields.channel_name,
+                        coreFields.archive_file,
+                        coreFields.mentions,
+                        coreFields.reference,
+                        coreFields.reactions,
+                        coreFields.embeds,
+                        JSON.stringify(extraData)
+                    ]);
+                }
+            }
+        }
+
+        await db.run('COMMIT');
         
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            collectFields(value, fieldName, schema);
-        } else {
-            schema.add(fieldName);
-        }
+        const timestamp = Date.now();
+        const logEntry = `DatabaseInsertion,${guildId},${path.basename(channelPath).split('_')[1]},${timestamp}\n`;
+        fs.appendFileSync(logPath, logEntry);
+        
+        console.log(`Successfully processed ${files.length} new files`);
+    } catch (error) {
+        await db.run('ROLLBACK');
+        console.error('Error processing files:', error);
+        throw error;
     }
-}
-
-async function initializeDatabase(guildId) {
-    const dbPath = path.join(__dirname, 'Output', guildId, 'archive.db');
-    ensureDirectoryExists(path.dirname(dbPath));
-
-    const db = await open({
-        filename: dbPath,
-        driver: sqlite3.Database
-    });
-
-    // Get or create schema
-    const schemaPath = path.join(__dirname, 'schema.json');
-    let fields;
-    if (!fs.existsSync(schemaPath)) {
-        fields = await analyzeArchiveSchema();
-        saveJsonFile(schemaPath, fields);
-    } else {
-        fields = loadJsonFile(schemaPath);
-    }
-
-    // Create table if it doesn't exist
-    const columns = fields.map(field => {
-        if (field === 'id') return 'id TEXT PRIMARY KEY';
-        if (field === 'createdTimestamp') return 'createdTimestamp INTEGER';
-        return `${field.replace(/[^a-zA-Z0-9_]/g, '_')} TEXT`;
-    });
-
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS raw_archive (
-            ${columns.join(',\n')}
-        )
-    `);
-
-    return db;
-}
-
-async function insertArchiveData(db, messages, channel) {
-    const fields = loadJsonFile(path.join(__dirname, 'schema.json'));
-    
-    for (const msg of messages) {
-        const flatMsg = flattenMessage(msg, fields);
-        const columns = Object.keys(flatMsg).join(', ');
-        const placeholders = Object.keys(flatMsg).map(() => '?').join(', ');
-        const values = Object.values(flatMsg);
-
-        try {
-            await db.run(
-                `INSERT OR REPLACE INTO raw_archive (${columns}) VALUES (${placeholders})`,
-                values
-            );
-        } catch (error) {
-            console.error(`Error inserting message ${msg.id}:`, error);
-        }
-    }
-}
-
-function flattenMessage(msg, fields) {
-    const flat = {};
-    for (const field of fields) {
-        const value = field.split('_').reduce((obj, key) => obj?.[key], msg);
-        flat[field.replace(/[^a-zA-Z0-9_]/g, '_')] = value ?? null;
-    }
-    return flat;
-}
-
-async function updateArchiveWithReactions(channel, archiveFilePath) {
-    // archiveFilePath is already correct as it's passed in
-    // ... rest of function remains the same
 }
 
 module.exports = {
+    initializeDatabaseIfNeeded,
     handleArchiveChannelCommand,
     handleArchiveServerCommand,
     updateReactionData,
+    processNewArchiveFiles,
 }; 

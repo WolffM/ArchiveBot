@@ -4,6 +4,7 @@ const users = require('./users');
 const csvParser = require('csv-parser');
 const { createObjectCsvWriter } = require('csv-writer');
 const axios = require('axios');
+const https = require('https');
 
 function parseTaskIds(args) {
     const rawInput = args.slice(1).join(' ').trim(); // Join everything after the command
@@ -308,23 +309,18 @@ function saveJsonFile(filePath, data) {
 }
 
 async function downloadFile(url, filePath) {
-    try {
-        const response = await axios({ 
-            method: 'get', 
-            url: url, 
-            responseType: 'stream' 
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(filePath);
+        https.get(url, response => {
+            response.pipe(file);
+            file.on('finish', () => {
+                file.close();
+                resolve();
+            });
+        }).on('error', err => {
+            fs.unlink(filePath, () => reject(err));
         });
-        const writer = fs.createWriteStream(filePath);
-        response.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-    } catch (error) {
-        console.error(`Failed to download ${url}:`, error);
-        throw error;
-    }
+    });
 }
 
 function scrubEmptyFields(obj, seen = new WeakSet()) {

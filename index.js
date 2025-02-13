@@ -1,6 +1,8 @@
-const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, Events, SlashCommandBuilder } = require('discord.js');
 const path = require('path');
 const tasklist = require('./tasklist');
+const { archiveChannel, initializeDatabaseIfNeeded } = require('./archive');
+const fs = require('fs');
 
 const { adminCommandsList, standardCommandsList } = require('./commands');
 
@@ -11,6 +13,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMessageReactions
     ],
 });
 
@@ -120,11 +123,59 @@ client.on('interactionCreate', async interaction => {
             });
         }
     }
+
+    if (commandName === 'archivechannel') {
+        await interaction.deferReply();
+        
+        try {
+            await initializeDatabaseIfNeeded(interaction.guildId);
+            const archivePath = await archiveChannel(interaction.channel);
+            
+            if (archivePath) {
+                await interaction.editReply('Channel archived successfully!');
+            } else {
+                await interaction.editReply('No new messages to archive.');
+            }
+        } catch (error) {
+            console.error('Error archiving channel:', error);
+            await interaction.editReply('Error archiving channel.');
+        }
+    }
 });
 
-client.once('ready', () => {
-    console.log(`${client.user.tag} is online!`);
-    registerCommands();
+client.once(Events.ClientReady, async client => {
+    console.log(`Logged in as ${client.user.tag}`);
+
+    // Initialize databases for all guilds that have archives
+    const outputDir = path.join(__dirname, 'Output');
+    if (fs.existsSync(outputDir)) {
+        const guildDirs = fs.readdirSync(outputDir).filter(f => 
+            fs.statSync(path.join(outputDir, f)).isDirectory()
+        );
+
+        for (const guildId of guildDirs) {
+            console.log(`Initializing database for guild ${guildId}...`);
+            await initializeDatabaseIfNeeded(guildId);
+        }
+    }
+
+    console.log('All databases initialized');
+
+    // Register commands when bot starts
+    const archiveCommand = new SlashCommandBuilder()
+        .setName('archivechannel')
+        .setDescription('Archives all messages in the current channel')
+        .addBooleanOption(option =>
+            option.setName('attachments')
+                .setDescription('Whether to download attachments')
+                .setRequired(false))
+        .addBooleanOption(option =>
+            option.setName('messages')
+                .setDescription('Whether to archive messages')
+                .setRequired(false));
+
+    client.application.commands.set([archiveCommand]);
+    console.log('Commands registered!');
 });
 
 client.login(TOKEN);
