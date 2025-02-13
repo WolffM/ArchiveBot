@@ -3,6 +3,7 @@ const path = require('path');
 const users = require('./users');
 const csvParser = require('csv-parser');
 const { createObjectCsvWriter } = require('csv-writer');
+const axios = require('axios');
 
 function parseTaskIds(args) {
     const rawInput = args.slice(1).join(' ').trim(); // Join everything after the command
@@ -197,12 +198,6 @@ function formatTasks(tasks) {
     return tasks.map((task) => `[${task.taskId}] ${task.taskName}`).join('\n');
 }
 
-function ensureDirectoryExists(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-    }
-}
-
 function calculateAge(creationDate) {
     const now = new Date();
     const created = new Date(creationDate);
@@ -302,4 +297,92 @@ function getMonthYear(ts) {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-module.exports = { getYear, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, ensureDirectoryExists, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds }; 
+/**
+ * Generic Utility Functions
+ * 
+ * File Operations:
+ * - ensureDirectoryExists: Directory creation
+ * - loadJsonFile: Safe JSON file loading
+ * - saveJsonFile: Safe JSON file saving
+ * - downloadFile: Generic file download
+ * 
+ * Data Processing:
+ * - scrubEmptyFields: Clean object data
+ * - delay: Async delay utility
+ * - logProgress: Generic progress logging
+ */
+
+function loadJsonFile(filePath, defaultValue = {}) {
+    return fs.existsSync(filePath) ? 
+        JSON.parse(fs.readFileSync(filePath)) : 
+        defaultValue;
+}
+
+function saveJsonFile(filePath, data) {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+async function downloadFile(url, filePath) {
+    try {
+        const response = await axios({ 
+            method: 'get', 
+            url: url, 
+            responseType: 'stream' 
+        });
+        const writer = fs.createWriteStream(filePath);
+        response.data.pipe(writer);
+
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+    } catch (error) {
+        console.error(`Failed to download ${url}:`, error);
+        throw error;
+    }
+}
+
+function scrubEmptyFields(obj, seen = new WeakSet()) {
+    if (obj && typeof obj === 'object') {
+        if (seen.has(obj)) return undefined;
+        seen.add(obj);
+        const scrubbed = {};
+        for (const key in obj) {
+            const value = scrubEmptyFields(obj[key], seen);
+            if (value !== undefined && 
+                value !== null && 
+                !(key === 'discriminator' || 
+                  key === 'avatar' || 
+                  key === 'avatarDecorationData' || 
+                  key === 'guildId' || 
+                  key === 'channelId' || 
+                  key === 'thumbnail' || 
+                  key === 'video' || 
+                  (key === 'flags' && value.bitfield === 0) || 
+                  (key === 'type' && value === 0) || 
+                  (key === 'position' && value === 0) || 
+                  value === false)) {
+                scrubbed[key] = value;
+            }
+        }
+        return Object.keys(scrubbed).length > 0 ? scrubbed : undefined;
+    } else if (Array.isArray(obj)) {
+        return obj.length > 0 ? 
+            obj.map(item => scrubEmptyFields(item, seen))
+               .filter(item => item !== undefined) : 
+            undefined;
+    }
+    return obj;
+}
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function logProgress(label, current, total, interval = 50) {
+    if (current % interval === 0) {
+        console.log(`[${label}] ${current} processed, ${total} total.`);
+    }
+}
+
+module.exports = { getYear, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, postHelp, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds, loadJsonFile, saveJsonFile, downloadFile, scrubEmptyFields, delay, logProgress }; 
