@@ -55,10 +55,19 @@ function getAssignedName(task, guildId) {
 }
 
 // Example: Handling a new message
-function handleNewMessage(message) {
-    const userId = message.author.id;
-    const displayName = message.author.username; // or displayName depending on context
-    const guildId = message.guild.id;
+function handleNewMessage(messageOrInteraction) {
+    const author = messageOrInteraction.author;
+    const guild = messageOrInteraction.guild;
+    const timestamp = messageOrInteraction.createdTimestamp;
+
+    if (!author || !guild) {
+        console.log('Invalid message format:', messageOrInteraction);
+        return;
+    }
+
+    const userId = author.id;
+    const displayName = author.username; // or displayName depending on context
+    const guildId = guild.id;
     updateUser(userId, displayName, guildId);
 
     // Handle task assignment as usual

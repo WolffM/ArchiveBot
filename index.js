@@ -1,12 +1,11 @@
-const { Client, GatewayIntentBits, REST, Routes, Events, SlashCommandBuilder } = require('discord.js');
-const path = require('path');
-const tasklist = require('./tasklist');
+const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
 const { archiveChannel, initializeDatabaseIfNeeded } = require('./archive');
-const fs = require('fs');
-
-const { adminCommandsList, standardCommandsList } = require('./commands');
-
+const { createCommandsList, standardCommandsList } = require('./commands');
+const tasklist = require('./tasklist');
 require('dotenv').config();
+
+// Admin user IDs from .env
+const adminUserIds = process.env.ADMIN_USER_IDS ? process.env.ADMIN_USER_IDS.split(',') : [];
 
 const client = new Client({
     intents: [
@@ -14,114 +13,102 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessageReactions
-    ],
+    ]
 });
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
+client.once('ready', () => {
+    console.log('Bot is ready!');
+    
+    const adminCommandsList = createCommandsList(adminUserIds);
+    
+    // Register all commands when bot starts
+    const commands = [
+        // Admin commands
+        ...Object.entries(adminCommandsList).map(([name, cmd]) => {
+            const command = new SlashCommandBuilder()
+                .setName(name)
+                .setDescription(cmd.description);
+            
+            if (cmd.options) {
+                cmd.options.forEach(opt => {
+                    if (opt.type === 5) { // BOOLEAN
+                        command.addBooleanOption(option =>
+                            option.setName(opt.name)
+                                .setDescription(opt.description)
+                                .setRequired(opt.required || false)
+                        );
+                    } else if (opt.type === 3) { // STRING
+                        command.addStringOption(option =>
+                            option.setName(opt.name)
+                                .setDescription(opt.description)
+                                .setRequired(opt.required || false)
+                        );
+                    } else if (opt.type === 4) { // INTEGER
+                        command.addIntegerOption(option =>
+                            option.setName(opt.name)
+                                .setDescription(opt.description)
+                                .setRequired(opt.required || false)
+                        );
+                    }
+                });
+            }
+            return command.toJSON();
+        }),
+        
+        // Standard commands
+        ...Object.entries(standardCommandsList).map(([name, cmd]) => {
+            const command = new SlashCommandBuilder()
+                .setName(name)
+                .setDescription(cmd.description);
+            
+            if (cmd.options) {
+                cmd.options.forEach(opt => {
+                    if (opt.type === 5) { // BOOLEAN
+                        command.addBooleanOption(option =>
+                            option.setName(opt.name)
+                                .setDescription(opt.description)
+                                .setRequired(opt.required || false)
+                        );
+                    }
+                });
+            }
+            return command.toJSON();
+        })
+    ];
 
-// Admin user IDs from .env
-const adminUserIds = process.env.ADMIN_USER_IDS ? process.env.ADMIN_USER_IDS.split(',') : [];
-
-// Command handlers map
-const adminCommands = new Map();
-const standardCommands = new Map();
-
-// Add commands to Maps
-Object.entries(adminCommandsList).forEach(([name, command]) => {
-    adminCommands.set(name, command);
+    client.application.commands.set(commands);
+    console.log('Commands registered!');
 });
 
-Object.entries(standardCommandsList).forEach(([name, command]) => {
-    standardCommands.set(name, command);
-});
-
-// Convert commands to slash command format
-const slashCommands = [
-    ...Object.entries(adminCommandsList).map(([name, cmd]) => ({
-        name,
-        description: cmd.description,
-        type: 1, // CHAT_INPUT
-        defaultPermission: false, // Admin commands are restricted by default
-    })),
-    ...Object.entries(standardCommandsList).map(([name, cmd]) => ({
-        name,
-        description: cmd.description,
-        type: 1, // CHAT_INPUT
-    })),
-];
-
-// Register slash commands
-const rest = new REST({ version: '10' }).setToken(TOKEN);
-
-async function registerCommands() {
-    try {
-        console.log('Started refreshing application (/) commands.');
-
-        await rest.put(
-            Routes.applicationCommands(CLIENT_ID),
-            { body: slashCommands }
-        );
-
-        console.log('Successfully reloaded application (/) commands.');
-    } catch (error) {
-        console.error(error);
-    }
-}
-
-// Handle interactions (slash commands)
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
     const { commandName } = interaction;
+    const adminCommandsList = createCommandsList(adminUserIds);
 
     // Check if it's an admin command
     if (adminCommandsList[commandName]) {
         if (!adminUserIds.includes(interaction.user.id)) {
             await interaction.reply({ 
-                content: "Insufficient permission, please contact an admin.",
+                content: "You don't have permission to use this command.",
                 ephemeral: true 
             });
             return;
         }
-
-        try {
-            await adminCommandsList[commandName].execute(interaction);
-        } catch (error) {
-            console.error(`Error executing admin command ${commandName}:`, error);
-            await interaction.reply({ 
-                content: 'There was an error executing that command.',
-                ephemeral: true 
-            });
-        }
+        await adminCommandsList[commandName].execute(interaction);
         return;
     }
 
     // Check if it's a standard command
     if (standardCommandsList[commandName]) {
-        try {
-            await standardCommandsList[commandName].execute(interaction);
-        } catch (error) {
-            console.error(`Error executing standard command ${commandName}:`, error);
-            await interaction.reply({ 
-                content: 'There was an error executing that command.',
-                ephemeral: true 
-            });
-        }
+        await standardCommandsList[commandName].execute(interaction);
         return;
     }
 
     // Handle task commands
-    if (tasklist.isTaskCommand(commandName)) {
-        try {
-            await tasklist.handleSlashCommand(interaction, adminUserIds);
-        } catch (error) {
-            console.error(`Error executing task command ${commandName}:`, error);
-            await interaction.reply({ 
-                content: `There was an error processing the command: ${commandName}`,
-                ephemeral: true 
-            });
-        }
+    if (['task', 'tasks', 'done', 'delete'].includes(commandName)) {
+        await tasklist.handleSlashCommand(interaction, adminUserIds);
+        return;
     }
 
     if (commandName === 'archivechannel') {
@@ -143,39 +130,4 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-client.once(Events.ClientReady, async client => {
-    console.log(`Logged in as ${client.user.tag}`);
-
-    // Initialize databases for all guilds that have archives
-    const outputDir = path.join(__dirname, 'Output');
-    if (fs.existsSync(outputDir)) {
-        const guildDirs = fs.readdirSync(outputDir).filter(f => 
-            fs.statSync(path.join(outputDir, f)).isDirectory()
-        );
-
-        for (const guildId of guildDirs) {
-            console.log(`Initializing database for guild ${guildId}...`);
-            await initializeDatabaseIfNeeded(guildId);
-        }
-    }
-
-    console.log('All databases initialized');
-
-    // Register commands when bot starts
-    const archiveCommand = new SlashCommandBuilder()
-        .setName('archivechannel')
-        .setDescription('Archives all messages in the current channel')
-        .addBooleanOption(option =>
-            option.setName('attachments')
-                .setDescription('Whether to download attachments')
-                .setRequired(false))
-        .addBooleanOption(option =>
-            option.setName('messages')
-                .setDescription('Whether to archive messages')
-                .setRequired(false));
-
-    client.application.commands.set([archiveCommand]);
-    console.log('Commands registered!');
-});
-
-client.login(TOKEN);
+client.login(process.env.DISCORD_TOKEN);

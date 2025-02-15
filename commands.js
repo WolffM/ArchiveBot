@@ -1,80 +1,187 @@
 const archive = require('./archive');
+const tasklist = require('./tasklist');
 
-const adminCommandsList = {
-    archivechannel: {
-        description: 'Archives content from the current channel',
-        options: [
-            {
-                name: 'content',
-                description: 'What content to archive',
+function createCommandsList(adminUserIds) {
+    return {
+        archivechannel: {
+            description: 'Archives content from the current channel',
+            options: [
+                {
+                    name: 'attachments',
+                    description: 'Whether to download attachments',
+                    type: 5, // BOOLEAN type
+                    required: false
+                },
+                {
+                    name: 'messages',
+                    description: 'Whether to archive messages',
+                    type: 5, // BOOLEAN type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                try {
+                    await interaction.deferReply();
+                    const attachments = interaction.options.getBoolean('attachments') ?? true;
+                    const messages = interaction.options.getBoolean('messages') ?? true;
+                    
+                    await archive.initializeDatabaseIfNeeded(interaction.guildId);
+                    const archivePath = await archive.archiveChannel(interaction.channel, {
+                        saveMessages: messages,
+                        saveAttachments: attachments
+                    });
+                    
+                    if (archivePath) {
+                        await interaction.editReply('Channel archived successfully!');
+                    } else {
+                        await interaction.editReply('No new messages to archive.');
+                    }
+                } catch (error) {
+                    console.error('Error in archivechannel command:', error);
+                    const reply = interaction.deferred ? 
+                        interaction.editReply : 
+                        interaction.reply;
+                    await reply.call(interaction, {
+                        content: 'An error occurred while archiving the channel.',
+                        ephemeral: true
+                    });
+                }
+            },
+        },
+        archiveserver: {
+            description: 'Archives content from all channels in the server',
+            options: [
+                {
+                    name: 'attachments',
+                    description: 'Whether to download attachments',
+                    type: 5, // BOOLEAN type
+                    required: false
+                },
+                {
+                    name: 'messages',
+                    description: 'Whether to archive messages',
+                    type: 5, // BOOLEAN type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                try {
+                    await interaction.deferReply();
+                    const attachments = interaction.options.getBoolean('attachments') ?? true;
+                    const messages = interaction.options.getBoolean('messages') ?? true;
+                    
+                    await archive.initializeDatabaseIfNeeded(interaction.guildId);
+                    
+                    let successCount = 0;
+                    let errorCount = 0;
+                    
+                    for (const channel of interaction.guild.channels.cache.values()) {
+                        if (channel.type === 0) { // Text channel
+                            try {
+                                const archivePath = await archive.archiveChannel(channel, {
+                                    saveMessages: messages,
+                                    saveAttachments: attachments
+                                });
+                                if (archivePath) successCount++;
+                            } catch (error) {
+                                console.error(`Error archiving channel ${channel.name}:`, error);
+                                errorCount++;
+                            }
+                        }
+                    }
+                    
+                    await interaction.editReply(
+                        `Server archive complete!\n` +
+                        `Successfully archived: ${successCount} channels\n` +
+                        `Failed to archive: ${errorCount} channels`
+                    );
+                } catch (error) {
+                    console.error('Error in archiveserver command:', error);
+                    await interaction.editReply('An error occurred while archiving the server.');
+                }
+            },
+        },
+        task: {
+            description: 'Add a new task',
+            options: [{
+                name: 'description',
+                description: 'The task description',
                 type: 3, // STRING type
-                required: true,
-                choices: [
-                    { name: 'Messages Only', value: 'messages' },
-                    { name: 'Attachments Only', value: 'attachments' },
-                    { name: 'Both', value: 'both' }
-                ]
-            }
-        ],
-        execute: async (interaction) => {
-            try {
-                const contentOption = interaction.options.getString('content');
-                await archive.handleArchiveChannelCommand(interaction, contentOption);
-            } catch (error) {
-                console.error('Error in archivechannel command:', error);
-                const reply = interaction.deferred ? 
-                    interaction.editReply : 
-                    interaction.reply;
-                await reply.call(interaction, {
-                    content: 'An error occurred while archiving the channel.',
-                    ephemeral: true
-                });
+                required: true
+            }],
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
             }
         },
-    },
-    archiveserver: {
-        description: 'Archives content from all channels in the server',
-        options: [
-            {
-                name: 'content',
-                description: 'What content to archive',
-                type: 3, // STRING type
-                required: true,
-                choices: [
-                    { name: 'Messages Only', value: 'messages' },
-                    { name: 'Attachments Only', value: 'attachments' },
-                    { name: 'Both', value: 'both' }
-                ]
-            }
-        ],
-        execute: async (interaction) => {
-            try {
-                const contentOption = interaction.options.getString('content');
-                await archive.handleArchiveServerCommand(interaction, contentOption);
-            } catch (error) {
-                console.error('Error in archiveserver command:', error);
-                const reply = interaction.deferred ? 
-                    interaction.editReply : 
-                    interaction.reply;
-                await reply.call(interaction, {
-                    content: 'An error occurred while archiving the server.',
-                    ephemeral: true
-                });
+        tasks: {
+            description: 'Display all tasks',
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
             }
         },
-    },
-};
+        done: {
+            description: 'Mark tasks as completed',
+            options: [{
+                name: 'id',
+                description: 'Task ID(s) to mark as completed (comma-separated)',
+                type: 3, // STRING type
+                required: true
+            }],
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        },
+        take: {
+            description: 'Take a task',
+            options: [{
+                name: 'id',
+                description: 'The task ID',
+                type: 4, // INTEGER type
+                required: true
+            }],
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        },
+        init: {
+            description: 'Initialize the task system',
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        },
+        migrate: {
+            description: 'Migrate task data to new format (admin only)',
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        },
+        delete: {
+            description: 'Mark a task as abandoned',
+            options: [{
+                name: 'id',
+                description: 'Task ID(s) to mark as abandoned (comma-separated)',
+                type: 3, // STRING type
+                required: true
+            }],
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        },
+    };
+}
 
 const standardCommandsList = {
     test: {
-        description: 'Logs the user ID to the console',
+        description: 'Tests the bot connection',
         execute: async (interaction) => {
-            console.log(`User ID: ${interaction.user.id}`);
-            await interaction.reply(`User ID logged to console.`);
+            await interaction.reply({
+                content: `Bot is working! User ID: ${interaction.user.id}`,
+                ephemeral: true
+            });
         }
     },
     myrecap: {
-        description: 'Logs the users recap to the channel console',
+        description: 'Shows your message history recap',
         execute: async (interaction) => {
             await interaction.deferReply();
             await archive.handleMyRecapCommand(interaction);
@@ -83,6 +190,6 @@ const standardCommandsList = {
 };
 
 module.exports = {
-    adminCommandsList,
+    createCommandsList,
     standardCommandsList,
 }; 
