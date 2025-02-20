@@ -2,9 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const users = require('./users');
 const helper = require('./helper');
-const { migrateGuild } = require('./migrate');
 
-const VALID_STATUSES = ['New', 'Active', 'Completed', 'Abandoned'];
+/*
+Task Schema:
+{
+    id: number,          // Unique identifier for the task
+    name: string,        // Description of the task
+    created: string,     // ISO timestamp of when task was created
+    status: string,      // "New", "Active", or "Completed"
+    assigned: string     // Discord user ID, or empty string if unassigned
+}
+*/
+
+const VALID_STATUSES = ['New', 'Active', 'Completed'];
 
 function getNextTaskId(tasksData) {
     if (!tasksData.tasks || !Array.isArray(tasksData.tasks) || tasksData.tasks.length === 0) {
@@ -36,12 +46,7 @@ function validateTask(task) {
         name: task.name || '',
         created: task.created || new Date().toISOString(),
         status: VALID_STATUSES.includes(task.status) ? task.status : 'New',
-        assigned: task.assigned || '',
-        history: Array.isArray(task.history) ? task.history : [{
-            date: task.created || new Date().toISOString(),
-            action: 'Created',
-            userId: task.assigned || 'unknown'
-        }]
+        assigned: task.assigned || ''
     };
 }
 
@@ -63,12 +68,7 @@ function processTaskNames(args, tasksData, guildId, user) {
                 name: taskName,
                 created: new Date().toISOString(),
                 status: 'New',
-                assigned: '',
-                history: [{
-                    date: new Date().toISOString(),
-                    action: 'Created',
-                    userId: user.id
-                }]
+                assigned: ''
             };
             tasksData.tasks.push(newTask);
             addedTasks.push(newTask);
@@ -97,8 +97,28 @@ async function displayTaskList(message, guildId) {
             (msg.author.bot || msg.content.startsWith('/'))
         );
         
+        // Check if any messages are older than 14 days
+        const hasOldMessages = messagesToDelete.some(msg => 
+            Date.now() - msg.createdTimestamp >= 14 * 24 * 60 * 60 * 1000
+        );
+
         if (messagesToDelete.size > 0) {
-            await message.channel.bulkDelete(messagesToDelete);
+            if (hasOldMessages) {
+                // Delete messages one by one if there are old messages
+                for (const msg of messagesToDelete.values()) {
+                    try {
+                        await msg.delete();
+                    } catch (e) {
+                        // Only log non-10008 errors (unknown message)
+                        if (e.code !== 10008) {
+                            console.error('Error deleting message:', e);
+                        }
+                    }
+                }
+            } else {
+                // Use bulk delete for recent messages
+                await message.channel.bulkDelete(messagesToDelete);
+            }
         }
     } catch (error) {
         console.error('Error cleaning up messages:', error);
@@ -186,32 +206,19 @@ async function displayTaskList(message, guildId) {
     const activeTaskDisplay = createTable("Active Tasks", activeTasks, activeTaskHeaders, activeTaskSelectors);
 
     // Fix Completed Tasks Table
-    const completedTasks = tasksData.tasks.filter(task => {
-        if (!task || task.status !== 'Completed') return false;
-        if (!Array.isArray(task.history)) return false;
-        return true;  // If it has Completed status and valid history array, show it
-    });
+    const completedTasks = tasksData.tasks.filter(task => 
+        task && task.status === 'Completed'
+    );
 
-    const completedTaskHeaders = ["ID", "Task Name", "Date", "Completed By", "Status"];
+    const completedTaskHeaders = ["ID", "Task Name", "Date", "Completed By"];
     const completedTaskSelectors = [
         (task) => task.id?.toString() || '',
         (task) => task.name || '',
-        (task) => {
-            const completedEntry = task.history.find(h => h.action === 'Completed') || 
-                                 task.history[task.history.length - 1];
-            return new Date(completedEntry.date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric'
-            });
-        },
-        (task) => {
-            // First try to get the user from the Completed entry
-            const completedEntry = task.history.find(h => h.action === 'Completed');
-            // If no Completed entry, use the task's assigned field
-            const userId = completedEntry ? completedEntry.userId : task.assigned;
-            return users.getDisplayName(userId, guildId);
-        },
-        (task) => task.status
+        (task) => new Date(task.created).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric'
+        }),
+        (task) => users.getDisplayName(task.assigned, guildId)
     ];
 
     const completedTaskDisplay = createTable("Completed Tasks", completedTasks, completedTaskHeaders, completedTaskSelectors);
@@ -231,127 +238,204 @@ async function displayTaskList(message, guildId) {
     await sendTaskMessages("Completed Tasks", completedTaskDisplay);
 }
 
-// Helper function to handle commands that take multiple task IDs
-async function handleTaskIdsCommand(interaction, command, validateTasks) {
-    const idInput = interaction.options.getString('id');
-    if (!idInput) {
-        await interaction.reply({ content: 'Please provide at least one task ID.', ephemeral: true });
-        return null;
-    }
+async function processTaskAction(interaction, action) {
+    const input = interaction.options.getString('tasks');
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+        const tasksData = loadTasks(interaction.guild.id);
+        let processedTasks = [];
 
-    // Split and validate IDs
-    const taskIds = idInput.split(',')
-        .map(id => id.trim())
-        .filter(id => id.length > 0);
+        // Check if input contains quotes (task descriptions)
+        if (input.includes('"')) {
+            const descriptions = input.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim()) || [input];
+            if (!descriptions.length) {
+                throw new Error('Invalid task description format. Use "task name" for descriptions.');
+            }
 
-    // Validate that each ID is numeric
-    for (const id of taskIds) {
-        if (isNaN(parseInt(id))) {
-            await interaction.reply({ content: `Invalid task id: ${id}`, ephemeral: true });
-            return null;
+            // Create and process new tasks
+            descriptions.forEach(description => {
+                if (!description.trim()) return;
+                
+                const newTask = {
+                    id: getNextTaskId(tasksData),
+                    name: description,
+                    created: new Date().toISOString(),
+                    status: action.newStatus,
+                    assigned: action.assignUser ? interaction.user.id : ''
+                };
+                tasksData.tasks.push(newTask);
+                processedTasks.push(newTask);
+            });
+
+            await interaction.editReply({ 
+                content: `Created and ${action.verb} ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}` 
+            });
+        } else {
+            // Handle task IDs
+            const taskIds = input.split(',')
+                .map(id => id.trim())
+                .filter(id => !isNaN(id))
+                .map(id => parseInt(id));
+
+            if (taskIds.length === 0) {
+                throw new Error('No valid task IDs provided.');
+            }
+
+            // Filter for existing tasks only
+            const existingTasks = [];
+            const notFoundIds = [];
+            
+            taskIds.forEach(id => {
+                const task = tasksData.tasks.find(t => t.id === id);
+                if (task) {
+                    existingTasks.push(task);
+                } else {
+                    notFoundIds.push(id);
+                }
+            });
+
+            if (existingTasks.length === 0) {
+                throw new Error('None of the provided task IDs exist.');
+            }
+
+            // Process existing tasks
+            existingTasks.forEach(task => {
+                task.status = action.newStatus;
+                if (action.assignUser) {
+                    task.assigned = interaction.user.id;
+                }
+                processedTasks.push(task);
+            });
+
+            let response = `${action.verb} ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`;
+            if (notFoundIds.length > 0) {
+                response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
+            }
+
+            await interaction.editReply({ content: response });
         }
-    }
-
-    const tasksData = loadTasks(interaction.guild.id);
-    const invalidIds = validateTasks(taskIds, tasksData);
-
-    if (invalidIds.length > 0) {
-        await interaction.reply({ 
-            content: `${invalidIds.join(', ')} ${invalidIds.length === 1 ? 'is' : 'are'} invalid.`, 
-            ephemeral: true 
+        
+        helper.saveTasks(interaction.guild.id, tasksData);
+        await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
+    } catch (error) {
+        await interaction.editReply({ 
+            content: `Error: ${error.message}` 
         });
-        return null;
     }
-
-    // Return the correct command with the task IDs
-    return [command, ...taskIds];
 }
 
-async function handleSlashCommand(interaction, adminUserIds) {
+function createMessageProxy(interaction) {
+    return {
+        guild: interaction.guild,
+        channel: interaction.channel,
+        author: interaction.user,
+        client: interaction.client,
+        id: interaction.id
+    };
+}
+
+async function handleSlashCommand(interaction) {
     const guildId = interaction.guild.id;
 
     try {
-        const messageProxy = {
-            guild: interaction.guild,
-            channel: interaction.channel,
-            author: interaction.user,
-            client: interaction.client,
-            id: interaction.id
-        };
-
-        let args = [];
         switch (interaction.commandName) {
-            case 'done': {
-                // Validate tasks aren't already completed
-                const validateDone = (taskIds, tasksData) => taskIds.filter(id => {
-                    const taskId = parseInt(id);
-                    const task = tasksData.tasks.find(t => t.id === taskId);
-                    return !task || task.status === 'Completed';
+            case 'done':
+            case 'take': {
+                await processTaskAction(interaction, {
+                    verb: interaction.commandName === 'done' ? 'completed' : 'taken',
+                    newStatus: interaction.commandName === 'done' ? 'Completed' : 'Active',
+                    assignUser: true
                 });
-                
-                args = await handleTaskIdsCommand(interaction, 'done', validateDone);
-                if (!args) return;
                 break;
             }
-            case 'delete': {
-                // Only validate tasks exist
-                const validateDelete = (taskIds, tasksData) => taskIds.filter(id => {
-                    const taskId = parseInt(id);
-                    return !tasksData.tasks.find(t => t.id === taskId);
-                });
-                
-                args = await handleTaskIdsCommand(interaction, 'delete', validateDelete);
-                if (!args) return;
-                break;
-            }
-            case 'migrate': {
-                // Only allow admins to run migration
-                if (!adminUserIds.includes(interaction.user.id)) {
-                    await interaction.reply({ 
-                        content: 'Only administrators can run the migration command.', 
-                        ephemeral: true 
-                    });
-                    return;
+
+            case 'task': {
+                const input = interaction.options.getString('description');
+                if (!input) {
+                    throw new Error('No task description provided');
                 }
 
-                // Defer the reply since migration might take time
                 await interaction.deferReply({ ephemeral: true });
-
+                
                 try {
-                    const result = await migrateGuild(guildId);
+                    console.log('Raw input:', input); // Debug log
+                    const tasksData = loadTasks(interaction.guild.id);
                     
-                    // After migration, refresh the task display
-                    await start(messageProxy, ['list'], adminUserIds);
+                    // Clean up input and handle multiple tasks
+                    const cleanInput = input.replace(/^description:\s*/, '').trim();
+                    console.log('Cleaned input:', cleanInput); // Debug log
                     
-                    // Edit the deferred reply
-                    await interaction.editReply({ content: result });
+                    const descriptions = cleanInput.includes('"') 
+                        ? cleanInput.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim()) || [cleanInput]
+                        : [cleanInput];
+                    
+                    console.log('Parsed descriptions:', descriptions); // Debug log
+                    
+                    const addedTasks = [];
+
+                    descriptions.forEach(description => {
+                        if (!description.trim()) return;
+
+                        const newTask = {
+                            id: getNextTaskId(tasksData),
+                            name: description,
+                            created: new Date().toISOString(),
+                            status: 'New',
+                            assigned: ''
+                        };
+                        tasksData.tasks.push(newTask);
+                        addedTasks.push(newTask);
+                    });
+                    
+                    helper.saveTasks(interaction.guild.id, tasksData);
+                    
+                    await interaction.editReply({ 
+                        content: `Added ${addedTasks.length} task(s):\n${addedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}` 
+                    });
+                    
+                    await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
                 } catch (error) {
                     await interaction.editReply({ 
-                        content: `Migration failed: ${error.message}` 
+                        content: `Error: ${error.message}` 
                     });
                 }
-                return; // Important: return here to prevent double replies
+                break;
             }
-            case 'task':
-                args = ['add', interaction.options.getString('description')];
-                break;
-            case 'take':
-                args = ['take', interaction.options.getInteger('id').toString()];
-                break;
-            case 'tasks':
-                args = ['testt'];
-                break;
-            case 'init':
-                args = ['init'];
-                break;
-        }
 
-        // Only send the "Processing command..." reply for non-migrate commands
-        if (interaction.commandName !== 'migrate') {
-            await interaction.reply({ content: 'Processing command...', ephemeral: true });
-            const result = await start(messageProxy, args, adminUserIds);
-        }
+            case 'delete': {
+                const input = interaction.options.getString('tasks');
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    const tasksData = loadTasks(interaction.guild.id);
+                    const taskIds = input.split(',')
+                        .map(id => id.trim())
+                        .filter(id => !isNaN(id))
+                        .map(id => parseInt(id));
 
+                    if (taskIds.length === 0) {
+                        throw new Error('No valid task IDs provided.');
+                    }
+
+                    const tasksToDelete = helper.getTasksByIds(taskIds, tasksData);
+                    tasksData.tasks = tasksData.tasks.filter(task => !taskIds.includes(task.id));
+                    
+                    helper.saveTasks(interaction.guild.id, tasksData);
+                    
+                    await interaction.editReply({ 
+                        content: `Deleted ${tasksToDelete.length} task(s):\n${tasksToDelete.map(t => `#${t.id}: ${t.name}`).join('\n')}` 
+                    });
+                    
+                    await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
+                } catch (error) {
+                    await interaction.editReply({ 
+                        content: `Error: ${error.message}` 
+                    });
+                }
+                break;
+            }
+        }
     } catch (error) {
         console.error('Command error:', error);
         if (!interaction.replied && !interaction.deferred) {
@@ -363,237 +447,7 @@ async function handleSlashCommand(interaction, adminUserIds) {
     }
 }
 
-async function start(message, args, adminUserIds) {
-    const guildId = message.guild.id;
-
-    // Handle the init command before checking for existing data
-    const command = args[0];
-    if (command === 'init') {
-        if (!adminUserIds.includes(message.author.id)) {
-            await message.channel.send("Insufficient permission, please contact an admin.");
-            return;
-        }
-        await initialize(message, guildId);
-        return;
-    }
-
-    users.handleNewMessage(message);
-    
-    // Ensure the guild is initialized
-    const guildPath = users.getGuildPath(guildId);
-    if (!fs.existsSync(guildPath)) {
-        message.channel.send("Init first please!");
-        return;
-    }
-
-    const tasksData = loadTasks(guildId);
-
-    switch (command) {
-        case 'add': {
-            try {
-                const { addedTasks, skippedTasks, message: addedMessage } = await processTaskNames(args.slice(1), tasksData, guildId, message.author);
-                await message.channel.send(addedMessage);
-            } catch (error) {
-                await message.channel.send(error.message);
-            }
-            break;
-        }       
-
-        case 'done': {
-            try {
-                if (args.join(' ').includes('"')) {
-                    // Handle quoted task names
-                    const { addedTasks, skippedTasks, message: addedMessage } = await processTaskNames(args.slice(1), tasksData, guildId, message.author);
-        
-                    // Immediately mark added tasks as completed
-                    addedTasks.forEach((task) => helper.updateTaskStatus(task, 'Completed', message.author.id));
-                    helper.saveTasks(guildId, tasksData);
-        
-                    await message.channel.send(addedMessage);
-                } else {
-                    // Handle numeric task IDs
-                    const taskIds = helper.parseTaskIds(args);
-                    const validIds = helper.validateTaskIds(taskIds, tasksData);
-                    const tasks = helper.getTasksByIds(validIds, tasksData);
-        
-                    tasks.forEach((task) => helper.updateTaskStatus(task, 'Completed', message.author.id));
-                    helper.saveTasks(guildId, tasksData);
-        
-                    const formattedTasks = helper.formatTasks(tasks);
-                    await message.channel.send(`Tasks marked as completed:\n${formattedTasks}`);
-                }
-            } catch (error) {
-                await message.channel.send(error.message);
-            }
-            break;
-        }
-
-        case 'delete': {
-            try {
-                const taskIds = helper.parseTaskIds(args);
-                const validIds = helper.validateTaskIds(taskIds, tasksData);
-        
-                const initialCount = tasksData.tasks.length;
-                const deletedTasks = helper.getTasksByIds(validIds, tasksData);
-                
-                // Add 'Deleted' to history before removing
-                deletedTasks.forEach(task => {
-                    task.history.push({
-                        date: new Date().toISOString(),
-                        action: 'Abandoned',
-                        userId: message.author.id
-                    });
-                });
-                
-                tasksData.tasks = tasksData.tasks.filter((task) => !validIds.includes(task.id));
-                helper.saveTasks(guildId, tasksData);
-        
-                const deletedCount = initialCount - tasksData.tasks.length;
-                await message.channel.send(`Deleted ${deletedCount} task(s).`);
-            } catch (error) {
-                await message.channel.send(error.message);
-            }
-            break;
-        }
-
-        case 'take': {
-            try {
-                const taskIds = helper.parseTaskIds(args);
-                const validIds = helper.validateTaskIds(taskIds, tasksData);
-                const tasks = helper.getTasksByIds(validIds, tasksData);
-        
-                tasks.forEach((task) => helper.assignTask(task, message.author.id));
-                helper.saveTasks(guildId, tasksData);
-        
-                const formattedTasks = helper.formatTasks(tasks);
-                await message.channel.send(`Tasks taken by you:\n${formattedTasks}`);
-            } catch (error) {
-                await message.channel.send(error.message);
-            }
-            break;
-        }
-        
-        case 'testt':
-            await message.channel.send(`Refreshing.`);
-            break;
-        
-        default:
-            await message.channel.send(`Unknown task command: ${command}`);
-            break;
-    }
-
-    // Refresh and display the task list
-    await helper.cleanupTasks(message.channel, tasksData);
-    await displayTaskList(message, guildId);
-}
-
-async function initialize(message, guildId) {
-    const guildPath = users.getGuildPath(guildId);
-    helper.ensureDirectoryExists(guildPath);
-
-    const tasksFilePath = path.join(guildPath, 'tasks.json');
-    const usersFilePath = path.join(guildPath, 'users.json');
-
-    // Initialize tasks.json with new structure
-    const initialTasksData = {
-        tasks: []
-    };
-    fs.writeFileSync(tasksFilePath, JSON.stringify(initialTasksData, null, 2));
-
-    // Initialize users.json if it doesn't exist
-    if (!fs.existsSync(usersFilePath)) {
-        fs.writeFileSync(usersFilePath, JSON.stringify({}, null, 2));
-    }
-
-    // Optional: Attempt to migrate existing data if found
-    const oldStatsPath = path.join(guildPath, 'stats.csv');
-    if (fs.existsSync(oldStatsPath)) {
-        try {
-            console.log('Found old stats file, attempting to migrate...');
-            const oldTasksData = JSON.parse(fs.readFileSync(tasksFilePath));
-            
-            // Backup old files
-            fs.renameSync(oldStatsPath, `${oldStatsPath}.backup`);
-            fs.renameSync(tasksFilePath, `${tasksFilePath}.backup`);
-            
-            // Create fresh tasks.json with new structure
-            fs.writeFileSync(tasksFilePath, JSON.stringify(initialTasksData, null, 2));
-            
-            await message.channel.send('Tasklist initialized successfully! (Old data backed up)');
-        } catch (error) {
-            console.error('Migration error:', error);
-            await message.channel.send('Tasklist initialized with fresh data. (Migration failed)');
-        }
-    } else {
-        await message.channel.send('Tasklist initialized successfully!');
-    }
-}
-
-async function migrateStatsToHistory(guildId) {
-    const statsPath = `Output/tasklist/${guildId}/stats.csv`;
-    const tasksPath = `Output/tasklist/${guildId}/tasks.json`;
-    
-    try {
-        // Read and parse stats.csv
-        const statsContent = fs.readFileSync(statsPath, 'utf8');
-        const rows = statsContent.split('\n')
-            .slice(1) // Skip header row
-            .filter(row => row.trim()) // Remove empty lines
-            .map(row => {
-                const [userId, taskId, taskName, date, status] = row.split(',');
-                return {
-                    userId,
-                    taskId: parseInt(taskId),
-                    taskName,
-                    date,
-                    status
-                };
-            });
-
-        // Read and parse tasks.json
-        const tasksData = JSON.parse(fs.readFileSync(tasksPath, 'utf8'));
-
-        // Update each task with its history from stats
-        tasksData.tasks = tasksData.tasks.map(task => {
-            // Find all stats entries for this task
-            const taskStats = rows.filter(stat => stat.taskId === task.id);
-            
-            // Sort by date to ensure correct order
-            taskStats.sort((a, b) => new Date(a.date) - new Date(b.date));
-            
-            // Get the final status from the most recent stat
-            const finalStat = taskStats[taskStats.length - 1];
-            if (finalStat) {
-                task.status = finalStat.status;
-                
-                // Update history with all status changes
-                task.history = [
-                    // Keep the Created entry if it exists
-                    ...task.history.filter(h => h.action === 'Created'),
-                    // Add entries from stats
-                    ...taskStats.map(stat => ({
-                        date: stat.date,
-                        action: stat.status,
-                        userId: stat.userId
-                    }))
-                ];
-            }
-            
-            return task;
-        });
-
-        // Write updated tasks back to file
-        fs.writeFileSync(tasksPath, JSON.stringify(tasksData, null, 2));
-        
-        return `Migration completed. Updated ${tasksData.tasks.length} tasks with history from stats.`;
-    } catch (error) {
-        console.error('Migration error:', error);
-        throw new Error(`Failed to migrate stats: ${error.message}`);
-    }
-}
-
 module.exports = { 
-    start, 
     handleSlashCommand,
     loadTasks,
     validateTask

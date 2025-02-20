@@ -1,5 +1,6 @@
 const archive = require('./archive');
 const tasklist = require('./tasklist');
+const { SlashCommandBuilder } = require('discord.js');
 
 function createCommandsList(adminUserIds) {
     return {
@@ -120,11 +121,11 @@ function createCommandsList(adminUserIds) {
             }
         },
         done: {
-            description: 'Mark tasks as completed',
+            description: 'Mark tasks as completed or create and complete a new task',
             options: [{
-                name: 'id',
-                description: 'Task ID(s) to mark as completed (comma-separated)',
-                type: 3, // STRING type
+                name: 'tasks',
+                description: 'Task IDs (1,2,3) or descriptions ("task 1", "task 2")',
+                type: 3,  // STRING type
                 required: true
             }],
             execute: async (interaction) => {
@@ -134,9 +135,9 @@ function createCommandsList(adminUserIds) {
         take: {
             description: 'Take a task',
             options: [{
-                name: 'id',
-                description: 'The task ID',
-                type: 4, // INTEGER type
+                name: 'tasks',
+                description: 'Task IDs (1,2,3) or descriptions ("task 1", "task 2")',
+                type: 3, // INTEGER type
                 required: true
             }],
             execute: async (interaction) => {
@@ -149,17 +150,11 @@ function createCommandsList(adminUserIds) {
                 await tasklist.handleSlashCommand(interaction, adminUserIds);
             }
         },
-        migrate: {
-            description: 'Migrate task data to new format (admin only)',
-            execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
-            }
-        },
         delete: {
             description: 'Mark a task as abandoned',
             options: [{
-                name: 'id',
-                description: 'Task ID(s) to mark as abandoned (comma-separated)',
+                name: 'tasks',
+                description: 'Task IDs to mark as abandoned (comma-separated)',
                 type: 3, // STRING type
                 required: true
             }],
@@ -189,7 +184,46 @@ const standardCommandsList = {
     }
 };
 
+const commands = [
+    new SlashCommandBuilder()
+        .setName('done')
+        .setDescription('Mark tasks as completed or create and complete new tasks')
+        .addStringOption(option =>
+            option.setName('tasks')
+                .setDescription('Task IDs (1,2,3) or descriptions ("task 1", "task 2")')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('take')
+        .setDescription('Take tasks or create and take new tasks')
+        .addStringOption(option =>
+            option.setName('tasks')
+                .setDescription('Task IDs (1,2,3) or descriptions ("task 1", "task 2")')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('task')
+        .setDescription('Add new tasks')
+        .addStringOption(option =>
+            option.setName('description')
+                .setDescription('Task descriptions ("task 1", "task 2")')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('delete')
+        .setDescription('Delete tasks by ID')
+        .addStringOption(option =>
+            option.setName('tasks')
+                .setDescription('Task IDs to delete (1,2,3)')
+                .setRequired(true)
+        )
+];
+
 module.exports = {
     createCommandsList,
     standardCommandsList,
+    commands
 }; 
