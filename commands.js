@@ -162,6 +162,26 @@ function createCommandsList(adminUserIds) {
                 await tasklist.handleSlashCommand(interaction, adminUserIds);
             }
         },
+        tag: {
+            description: 'Tag a category to tasks',
+            options: [
+                {
+                    name: 'category',
+                    description: 'The category name to Tag',
+                    type: 3, // STRING type
+                    required: true
+                },
+                {
+                    name: 'tasks',
+                    description: 'Task IDs to mark as abandoned (comma-separated)',
+                    type: 3, // STRING type
+                    required: true
+                }
+            ],
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        }
     };
 }
 
@@ -218,6 +238,20 @@ const commands = [
         .addStringOption(option =>
             option.setName('tasks')
                 .setDescription('Task IDs to delete (1,2,3)')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('tag')
+        .setDescription('Tag a category to tasks')
+        .addStringOption(option =>
+            option.setName('category')
+                .setDescription('The category name to tag')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('tasks')
+                .setDescription('Task IDs to mark as abandoned (comma-separated)')
                 .setRequired(true)
         )
 ];
