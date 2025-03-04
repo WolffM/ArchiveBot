@@ -6,12 +6,13 @@ const helper = require('./helper');
 /*
 Task Schema:
 {
-    id: number,          // Unique identifier for the task
-    name: string,        // Description of the task
-    created: string,     // ISO timestamp of when task was created
-    status: string,      // "New", "Active", or "Completed"
-    assigned: string     // Discord user ID, or empty string if unassigned
-    category: string     // Category of the task
+    id: number,                 // Unique identifier for the task
+    name: string,               // Description of the task
+    createdDate: timestamp,     // ISO timestamp of when task was created
+    status: string,             // "New", "Active", or "Completed"
+    assigned: string            // Discord user ID, or empty string if unassigned
+    category?: string           // Optional. Category of the task
+    completedDate?: timestamp   // Optional. ISO timestamp of when task was completed
 }
 */
 
@@ -89,7 +90,7 @@ async function displayTaskList(message, guildId) {
     };
 
     // Helper function to create table
-    const createTable = (title, tasks, headers, columnSelectors) => {
+    const createTable = (tasks, headers, columnSelectors) => {
         if (!tasks || tasks.length === 0) {
             return "No tasks available.";
         }
@@ -174,14 +175,14 @@ async function displayTaskList(message, guildId) {
     for (const category of sortedCategories) {
         const tasks = groupedTasks[category];
         // Use "New Tasks" as header for tasks with no category; otherwise include the category name.
-        const header = category ? `${category}` : "New Tasks";
+        const header = category ? `${category}` : "🌟  New Tasks 🌟";
         const newTaskHeaders = ["ID", "Task Name", "Age"];
         const newTaskSelectors = [
             (task) => task.id?.toString(),
             (task) => task.name,
-            (task) => helper.calculateAge(task.created)
+            (task) => helper.calculateAge(task.createdDate)
         ];
-        const tableDisplay = createTable(header, tasks, newTaskHeaders, newTaskSelectors);
+        const tableDisplay = createTable(tasks, newTaskHeaders, newTaskSelectors);
         await sendTaskMessages(header, tableDisplay);
     }
 
@@ -193,11 +194,11 @@ async function displayTaskList(message, guildId) {
     const activeTaskSelectors = [
         (task) => task.id?.toString(),
         (task) => task.name,
-        (task) => helper.calculateAge(task.created),
+        (task) => helper.calculateAge(task.createdDate),
         (task) => task.assigned ? users.getDisplayName(task.assigned, guildId) : "Unassigned"
     ];
-    const activeTaskDisplay = createTable("Active Tasks", activeTasks, activeTaskHeaders, activeTaskSelectors);
-    await sendTaskMessages("Active Tasks", activeTaskDisplay);
+    const activeTaskDisplay = createTable(activeTasks, activeTaskHeaders, activeTaskSelectors);
+    await sendTaskMessages("✏️ Active Tasks ✏️", activeTaskDisplay);
 
     // --- Completed Tasks Table ---
     const completedTasks = tasksData.tasks.filter(task =>
@@ -207,14 +208,18 @@ async function displayTaskList(message, guildId) {
     const completedTaskSelectors = [
         (task) => task.id?.toString() || '',
         (task) => task.name || '',
-        (task) => new Date(task.created).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric'
-        }),
+        (task) => {
+            const dateToDisplay = task.completedDate ? task.completedDate : task.createdDate;
+            return new Date(dateToDisplay).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric'
+            });
+        },
         (task) => users.getDisplayName(task.assigned, guildId)
     ];
-    const completedTaskDisplay = createTable("Completed Tasks", completedTasks, completedTaskHeaders, completedTaskSelectors);
-    await sendTaskMessages("Completed Tasks", completedTaskDisplay);
+    
+    const completedTaskDisplay = createTable(completedTasks, completedTaskHeaders, completedTaskSelectors);
+    await sendTaskMessages("✅ Completed Tasks ✅", completedTaskDisplay);
 }
 
 async function processTaskAction(interaction, action) {
@@ -239,10 +244,16 @@ async function processTaskAction(interaction, action) {
                 const newTask = {
                     id: getNextTaskId(tasksData),
                     name: description,
-                    created: new Date().toISOString(),
+                    createdDate: new Date().toISOString(),
                     status: action.newStatus,
                     assigned: action.assignUser ? interaction.user.id : ''
                 };
+
+                // If the task is being completed, add the completed date field
+                if (action.newStatus === 'Completed') {
+                    newTask.completed = new Date().toISOString();
+                }
+
                 tasksData.tasks.push(newTask);
                 processedTasks.push(newTask);
             });
@@ -284,6 +295,10 @@ async function processTaskAction(interaction, action) {
                 if (action.assignUser) {
                     task.assigned = interaction.user.id;
                 }
+                // If the task is being marked as completed, log the completed date
+                if (action.newStatus === 'Completed') {
+                    task.completedDate = new Date().toISOString();
+                }
                 processedTasks.push(task);
             });
 
@@ -303,6 +318,7 @@ async function processTaskAction(interaction, action) {
         });
     }
 }
+
 
 function createMessageProxy(interaction) {
     return {
@@ -359,7 +375,7 @@ async function handleSlashCommand(interaction) {
                         const newTask = {
                             id: getNextTaskId(tasksData),
                             name: description,
-                            created: new Date().toISOString(),
+                            createdDate: new Date().toISOString(),
                             status: 'New',
                             assigned: '',
                             category: ''
