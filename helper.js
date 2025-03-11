@@ -270,4 +270,96 @@ function logProgress(label, current, total, interval = 50) {
     }
 }
 
-module.exports = { getYear, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds, loadJsonFile, saveJsonFile, downloadFile, scrubEmptyFields, delay, logProgress }; 
+/**
+ * Build a GitHub-like weekly contribution graph for completed tasks in the last 32 weeks.
+ * Aggregates tasks by week and arranges them in a grid with 4 rows and 8 columns (32 weeks total).
+ * Uses a weather-themed gradient of standard Unicode emojis:
+ *   0 tasks      => ☁️
+ *   ratio <=0.25 => 🌥
+ *   ratio <=0.5  => ⛅️
+ *   ratio <=0.75 => 🌤
+ *   ratio >0.75  => ☀️
+ *
+ * This version returns an array of message strings that you can send separately.
+ */
+function buildWeeklyContributionGraph(tasksData, guildId) {
+    const now = new Date();
+    const totalWeeks = 32;
+    const ms32Weeks = totalWeeks * 7 * 24 * 60 * 60 * 1000;
+    const startDate = new Date(now.getTime() - ms32Weeks);
+    
+    // Build per-user weekly aggregates: userId -> array of weekly counts (32 weeks)
+    const userWeeklyCounts = {};
+    
+    tasksData.tasks.forEach(task => {
+      if (task && task.status === 'Completed' && task.assigned) {
+        // Use completedDate if available; otherwise fallback to createdDate.
+        const dateStr = task.completedDate ? task.completedDate : task.createdDate;
+        if (!dateStr) {
+          console.log(`Task ${task.id} has no valid date.`);
+          return;
+        }
+        const dateToUse = new Date(dateStr);
+        if (dateToUse >= startDate && dateToUse <= now) {
+          const weekIndex = Math.floor((dateToUse - startDate) / (7 * 24 * 60 * 60 * 1000));
+          if (weekIndex < totalWeeks) {
+            const userId = task.assigned;
+            if (!userWeeklyCounts[userId]) {
+              // Initialize an array for 32 weeks with 0's
+              userWeeklyCounts[userId] = new Array(totalWeeks).fill(0);
+            }
+            userWeeklyCounts[userId][weekIndex]++;
+          }
+        }
+      }
+    });
+    
+    // Build an array of message strings.
+    const messages = [];
+    messages.push("**Completed Tasks Weekly Contribution Graph (Last 32 Weeks)**");
+    
+    // Mapping function: returns a weather-themed emoji based on count ratio.
+    const getWeatherEmoji = (count, maxCount) => {
+      if (count === 0) return ':cloud:';
+      const ratio = count / (maxCount || 1);
+      if (ratio <= 0.25) return ':white_sun_cloud:';
+      else if (ratio <= 0.5) return ':partly_sunny:';
+      else if (ratio <= 0.75) return ':white_sun_small_cloud:';
+      else return ':sunny:';
+    };
+    
+    // For each user, build and add their graph.
+    for (const userId in userWeeklyCounts) {
+      const weeklyCounts = userWeeklyCounts[userId];
+      const displayName = users.getDisplayName(userId, guildId);
+      messages.push(`**${displayName}**`);
+    
+      // Determine the maximum count (for scaling the gradient)
+      const maxCount = Math.max(...weeklyCounts);
+    
+      // Arrange weekly counts into a grid with 4 rows and 8 columns.
+      const numRows = 4;
+      const numColumns = totalWeeks / numRows; // 32 / 4 = 8
+      const grid = [];
+      for (let r = 0; r < numRows; r++) {
+        grid[r] = [];
+        for (let c = 0; c < numColumns; c++) {
+          // Column-major filling: index = (column index * numRows) + row index.
+          const idx = c * numRows + r;
+          const count = idx < weeklyCounts.length ? weeklyCounts[idx] : 0;
+          grid[r].push(getWeatherEmoji(count, maxCount));
+        }
+      }
+      
+      // Add each row as a separate message.
+      for (let r = 0; r < numRows; r++) {
+        messages.push(grid[r].join(' '));
+      }
+    }
+    
+    console.log("Final Messages Array:", messages);
+    return messages;
+  }
+  
+
+module.exports = { buildWeeklyContributionGraph, getYear, getMonthYear, readLogEntries, appendLogEntry, ensureDirectoryExists, cleanupTasks, truncateString, saveTasks, processTaskNames, calculateAge, formatTasks, logTaskAction, assignTask, splitMessage, validateTaskIds, getTasksByStatus, updateTaskStatus, getTasksByIds, parseTaskIds, loadJsonFile, saveJsonFile, downloadFile, scrubEmptyFields, delay, logProgress }; 

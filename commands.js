@@ -109,6 +109,11 @@ function createCommandsList(adminUserIds) {
                 description: 'The task description',
                 type: 3, // STRING type
                 required: true
+            }, {
+                name: 'tag',
+                description: 'Category tag for the task',
+                type: 3, // STRING type
+                required: false
             }],
             execute: async (interaction) => {
                 await tasklist.handleSlashCommand(interaction, adminUserIds);
@@ -127,6 +132,11 @@ function createCommandsList(adminUserIds) {
                 description: 'Task IDs (1,2,3) or descriptions ("task 1", "task 2")',
                 type: 3,  // STRING type
                 required: true
+            }, {
+                name: 'tag',
+                description: 'Category tag for the task',
+                type: 3, // STRING type
+                required: false
             }],
             execute: async (interaction) => {
                 await tasklist.handleSlashCommand(interaction, adminUserIds);
@@ -178,6 +188,12 @@ function createCommandsList(adminUserIds) {
                     required: true
                 }
             ],
+            execute: async (interaction) => {
+                await tasklist.handleSlashCommand(interaction, adminUserIds);
+            }
+        },
+        history: {
+            description: 'Display task history',
             execute: async (interaction) => {
                 await tasklist.handleSlashCommand(interaction, adminUserIds);
             }

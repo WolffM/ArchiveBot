@@ -175,7 +175,10 @@ async function displayTaskList(message, guildId) {
     for (const category of sortedCategories) {
         const tasks = groupedTasks[category];
         // Use "New Tasks" as header for tasks with no category; otherwise include the category name.
-        const header = category ? `${category}` : "🌟  New Tasks 🌟";
+        // Capitalize the first letter of the category for display
+        const displayCategory = category ? 
+            category.charAt(0).toUpperCase() + category.slice(1) : "";
+        const header = displayCategory || "🌟  New Tasks 🌟";
         const newTaskHeaders = ["ID", "Task Name", "Age"];
         const newTaskSelectors = [
             (task) => task.id?.toString(),
@@ -199,36 +202,18 @@ async function displayTaskList(message, guildId) {
     ];
     const activeTaskDisplay = createTable(activeTasks, activeTaskHeaders, activeTaskSelectors);
     await sendTaskMessages("✏️ Active Tasks ✏️", activeTaskDisplay);
-
-    // --- Completed Tasks Table ---
-    const completedTasks = tasksData.tasks.filter(task =>
-        task && task.status === 'Completed'
-    );
-    const completedTaskHeaders = ["ID", "Task Name", "Date", "Completed By"];
-    const completedTaskSelectors = [
-        (task) => task.id?.toString() || '',
-        (task) => task.name || '',
-        (task) => {
-            const dateToDisplay = task.completedDate ? task.completedDate : task.createdDate;
-            return new Date(dateToDisplay).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric'
-            });
-        },
-        (task) => users.getDisplayName(task.assigned, guildId)
-    ];
-    
-    const completedTaskDisplay = createTable(completedTasks, completedTaskHeaders, completedTaskSelectors);
-    await sendTaskMessages("✅ Completed Tasks ✅", completedTaskDisplay);
 }
 
 async function processTaskAction(interaction, action) {
     const input = interaction.options.getString('tasks');
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
 
     try {
         const tasksData = loadTasks(interaction.guild.id);
         let processedTasks = [];
+        const tag = interaction.options.getString('tag') || '';
+        // Convert tag to lowercase for storage
+        const lowerCaseTag = tag.toLowerCase();
 
         // Check if input contains quotes (task descriptions)
         if (input.includes('"')) {
@@ -246,12 +231,13 @@ async function processTaskAction(interaction, action) {
                     name: description,
                     createdDate: new Date().toISOString(),
                     status: action.newStatus,
-                    assigned: action.assignUser ? interaction.user.id : ''
+                    assigned: action.assignUser ? interaction.user.id : '',
+                    category: lowerCaseTag
                 };
 
                 // If the task is being completed, add the completed date field
                 if (action.newStatus === 'Completed') {
-                    newTask.completed = new Date().toISOString();
+                    newTask.completedDate = new Date().toISOString();
                 }
 
                 tasksData.tasks.push(newTask);
@@ -351,11 +337,14 @@ async function handleSlashCommand(interaction) {
                     throw new Error('No task description provided');
                 }
 
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ ephemeral: false });
 
                 try {
                     console.log('Raw input:', input); // Debug log
                     const tasksData = loadTasks(interaction.guild.id);
+                    const tag = interaction.options.getString('tag') || '';
+                    // Convert tag to lowercase for storage
+                    const lowerCaseTag = tag.toLowerCase();
 
                     // Clean up input and handle multiple tasks
                     const cleanInput = input.replace(/^description:\s*/, '').trim();
@@ -378,7 +367,7 @@ async function handleSlashCommand(interaction) {
                             createdDate: new Date().toISOString(),
                             status: 'New',
                             assigned: '',
-                            category: ''
+                            category: lowerCaseTag
                         };
                         tasksData.tasks.push(newTask);
                         addedTasks.push(newTask);
@@ -401,7 +390,7 @@ async function handleSlashCommand(interaction) {
 
             case 'delete': {
                 const input = interaction.options.getString('tasks');
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ ephemeral: false });
 
                 try {
                     const tasksData = loadTasks(interaction.guild.id);
@@ -442,8 +431,18 @@ async function handleSlashCommand(interaction) {
                     throw new Error('No tasks provided.');
                 }
 
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ ephemeral: false });
                 const tasksData = loadTasks(interaction.guild.id);
+                
+                // Check if category is a task ID
+                let categoryToApply = category.toLowerCase();
+                if (!isNaN(category) && category.trim() !== '') {
+                    const categoryTaskId = parseInt(category.trim());
+                    const categoryTask = tasksData.tasks.find(t => t.id === categoryTaskId);
+                    if (categoryTask && categoryTask.category) {
+                        categoryToApply = categoryTask.category.toLowerCase();
+                    }
+                }
 
                 // Parse comma separated task IDs (assumed numeric)
                 const taskIds = tasksInput.split(',')
@@ -460,7 +459,7 @@ async function handleSlashCommand(interaction) {
                 taskIds.forEach(id => {
                     const task = tasksData.tasks.find(t => t.id === id);
                     if (task) {
-                        task.category = category; // add or update category
+                        task.category = categoryToApply; // add or update category
                         updatedTasks.push(task);
                     } else {
                         notFoundIds.push(id);
@@ -469,7 +468,9 @@ async function handleSlashCommand(interaction) {
 
                 helper.saveTasks(interaction.guild.id, tasksData);
 
-                let response = `Assigned category "${category}" to ${updatedTasks.length} task(s):\n` +
+                // For display, capitalize the first letter
+                const displayCategory = categoryToApply.charAt(0).toUpperCase() + categoryToApply.slice(1);
+                let response = `Assigned category "${displayCategory}" to ${updatedTasks.length} task(s):\n` +
                     updatedTasks.map(t => `#${t.id}: ${t.name}`).join('\n');
                 if (notFoundIds.length > 0) {
                     response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
@@ -480,13 +481,19 @@ async function handleSlashCommand(interaction) {
                 break;
             }
 
+            case 'history': {
+                await interaction.reply({ content: 'Task history feature coming soon!', ephemeral: false });
+                // TODO: Implement task history functionality
+                break;
+            }
+
         }
     } catch (error) {
         console.error('Command error:', error);
         if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
                 content: `Error: ${error.message}`,
-                ephemeral: true
+                ephemeral: false
             });
         }
     }
