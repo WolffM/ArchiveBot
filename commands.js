@@ -1,5 +1,6 @@
 const archive = require('./archive');
 const tasklist = require('./tasklist');
+const colorroles = require('./colorroles');
 const { SlashCommandBuilder } = require('discord.js');
 
 function createCommandsList(adminUserIds) {
@@ -217,6 +218,24 @@ const standardCommandsList = {
             await interaction.deferReply();
             await archive.handleMyRecapCommand(interaction);
         },
+    },
+    color: {
+        description: 'Set your display color using a color name, role ID, or hex color',
+        options: [{
+            name: 'color',
+            description: 'Color name, role ID, or hex color (e.g., Red, #FF0000)',
+            type: 3, // STRING type
+            required: true
+        }],
+        execute: async (interaction) => {
+            await colorroles.handleColorCommand(interaction);
+        }
+    },
+    colorshow: {
+        description: 'Show available colors and how to use custom colors',
+        execute: async (interaction) => {
+            await colorroles.handleColorShowCommand(interaction);
+        }
     }
 };
 
@@ -269,7 +288,20 @@ const commands = [
             option.setName('tasks')
                 .setDescription('Task IDs to mark as abandoned (comma-separated)')
                 .setRequired(true)
-        )
+        ),
+        
+    new SlashCommandBuilder()
+        .setName('color')
+        .setDescription('Set your display color')
+        .addStringOption(option =>
+            option.setName('color')
+                .setDescription('Color name, role ID, or hex color (e.g., Red, #FF0000)')
+                .setRequired(true)
+        ),
+        
+    new SlashCommandBuilder()
+        .setName('colorshow')
+        .setDescription('Show available colors and how to use custom colors')
 ];
 
 module.exports = {

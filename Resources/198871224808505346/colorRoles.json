@@ -1,0 +1,164 @@
+{
+  "roles": [
+    {
+      "name": "Lavender",
+      "hexColor": "#E6E6FA",
+      "id": "1093664803714781204"
+    },
+    {
+      "name": "PaleGreen",
+      "hexColor": "#98FB98",
+      "id": "1093665092916236318"
+    },
+    {
+      "name": "Coral",
+      "hexColor": "#FF7F50",
+      "id": "1093664562303221790"
+    },
+    {
+      "name": "LightSkyBlue",
+      "hexColor": "#87CEFA",
+      "id": "1093670503010545689"
+    },
+    {
+      "name": "SlateBlue",
+      "hexColor": "#6A5ACD",
+      "id": "1093665026268725248"
+    },
+    {
+      "name": "SpringGreen",
+      "hexColor": "#00FF7F",
+      "id": "1093670321820811294"
+    },
+    {
+      "name": "Deep Space Red",
+      "hexColor": "#DC5349",
+      "id": "1093711710495441006"
+    },
+    {
+      "name": "DarkMagenta",
+      "hexColor": "#8B008B",
+      "id": "1093671058177019914"
+    },
+    {
+      "name": "Violet",
+      "hexColor": "#EE82EE",
+      "id": "1093664941279543308"
+    },
+    {
+      "name": "OrangeRed",
+      "hexColor": "#FF4500",
+      "id": "1093670734976528404"
+    },
+    {
+      "name": "MediumPurple",
+      "hexColor": "#9370DB",
+      "id": "1093670872545501214"
+    },
+    {
+      "name": "Crimson",
+      "hexColor": "#DC143C",
+      "id": "1093682680710844488"
+    },
+    {
+      "name": "RosyBrown",
+      "hexColor": "#BC8F8F",
+      "id": "1093665773588848810"
+    },
+    {
+      "name": "Peru",
+      "hexColor": "#CD853F",
+      "id": "1093665845944799233"
+    },
+    {
+      "name": "SteelBlue",
+      "hexColor": "#4682B4",
+      "id": "1093665631469064325"
+    },
+    {
+      "name": "IndianRed",
+      "hexColor": "#CD5C5C",
+      "id": "1093664218298990643"
+    },
+    {
+      "name": "Wheat",
+      "hexColor": "#F5DEB3",
+      "id": "1093665727602503767"
+    },
+    {
+      "name": "LightPink",
+      "hexColor": "#FFB6C1",
+      "id": "1093664408108015756"
+    },
+    {
+      "name": "Gainsboro",
+      "hexColor": "#DCDCDC",
+      "id": "1093671270605918310"
+    },
+    {
+      "name": "MediumAquamarine",
+      "hexColor": "#66CDAA",
+      "id": "1093665431874703452"
+    },
+    {
+      "name": "HotPink",
+      "hexColor": "#FF69B4",
+      "id": "1093664473212006461"
+    },
+    {
+      "name": "LemonChiffon",
+      "hexColor": "#FFFACD",
+      "id": "1093664729358159914"
+    },
+    {
+      "name": "Khaki",
+      "hexColor": "#F0E68C",
+      "id": "1093671111746662400"
+    },
+    {
+      "name": "LightSalmon",
+      "hexColor": "#FFA07A",
+      "id": "1093664309948719154"
+    },
+    {
+      "name": "PapayaWhip",
+      "hexColor": "#FFEFD5",
+      "id": "1093664642355699814"
+    },
+    {
+      "name": "Thistle",
+      "hexColor": "#D8BFD8",
+      "id": "1093664866528669738"
+    },
+    {
+      "name": "Aqua",
+      "hexColor": "#00FFFF",
+      "id": "1093670420852523119"
+    },
+    {
+      "name": "LightSeaGreen",
+      "hexColor": "#20B2AA",
+      "id": "1093665490976641106"
+    },
+    {
+      "name": "Tomato",
+      "hexColor": "#FF6347",
+      "id": "1093670671088877598"
+    },
+    {
+      "name": "MediumSeaGreen",
+      "hexColor": "#3CB371",
+      "id": "1093665170556997743"
+    },
+    {
+      "name": "RoyalBlue",
+      "hexColor": "#4169E1",
+      "id": "1093670583876726917"
+    },
+    {
+      "name": "PaleTurquoise",
+      "hexColor": "#AFEEEE",
+      "id": "1093665562120441906"
+    }
+  ]
+}

@@ -16,6 +16,40 @@ const client = new Client({
     ]
 });
 
+/**
+ * Helper function to add options to a slash command based on option type
+ * @param {Object} command - SlashCommandBuilder object
+ * @param {Array} options - Array of option objects
+ * @returns {Object} The command with options added
+ */
+function addOptionsToCommand(command, options) {
+    if (!options) return command;
+    
+    options.forEach(opt => {
+        if (opt.type === 5) { // BOOLEAN
+            command.addBooleanOption(option =>
+                option.setName(opt.name)
+                    .setDescription(opt.description)
+                    .setRequired(opt.required || false)
+            );
+        } else if (opt.type === 3) { // STRING
+            command.addStringOption(option =>
+                option.setName(opt.name)
+                    .setDescription(opt.description)
+                    .setRequired(opt.required || false)
+            );
+        } else if (opt.type === 4) { // INTEGER
+            command.addIntegerOption(option =>
+                option.setName(opt.name)
+                    .setDescription(opt.description)
+                    .setRequired(opt.required || false)
+            );
+        }
+    });
+    
+    return command;
+}
+
 client.once('ready', () => {
     console.log('Bot is ready!');
     
@@ -29,30 +63,7 @@ client.once('ready', () => {
                 .setName(name)
                 .setDescription(cmd.description);
             
-            if (cmd.options) {
-                cmd.options.forEach(opt => {
-                    if (opt.type === 5) { // BOOLEAN
-                        command.addBooleanOption(option =>
-                            option.setName(opt.name)
-                                .setDescription(opt.description)
-                                .setRequired(opt.required || false)
-                        );
-                    } else if (opt.type === 3) { // STRING
-                        command.addStringOption(option =>
-                            option.setName(opt.name)
-                                .setDescription(opt.description)
-                                .setRequired(opt.required || false)
-                        );
-                    } else if (opt.type === 4) { // INTEGER
-                        command.addIntegerOption(option =>
-                            option.setName(opt.name)
-                                .setDescription(opt.description)
-                                .setRequired(opt.required || false)
-                        );
-                    }
-                });
-            }
-            return command.toJSON();
+            return addOptionsToCommand(command, cmd.options).toJSON();
         }),
         
         // Standard commands
@@ -61,18 +72,7 @@ client.once('ready', () => {
                 .setName(name)
                 .setDescription(cmd.description);
             
-            if (cmd.options) {
-                cmd.options.forEach(opt => {
-                    if (opt.type === 5) { // BOOLEAN
-                        command.addBooleanOption(option =>
-                            option.setName(opt.name)
-                                .setDescription(opt.description)
-                                .setRequired(opt.required || false)
-                        );
-                    }
-                });
-            }
-            return command.toJSON();
+            return addOptionsToCommand(command, cmd.options).toJSON();
         })
     ];
 
@@ -105,12 +105,7 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Handle task commands
-    if (['task', 'tasks', 'done', 'delete'].includes(commandName)) {
-        await tasklist.handleSlashCommand(interaction, adminUserIds);
-        return;
-    }
-
+    // Fallback for archivechannel command
     if (commandName === 'archivechannel') {
         await interaction.deferReply();
         
