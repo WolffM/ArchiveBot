@@ -11,6 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^1.7.9",
+    "canvas": "^3.1.0",
     "csv-parse": "^5.6.0",
     "csv-parser": "^3.1.0",
     "csv-writer": "^1.6.0",

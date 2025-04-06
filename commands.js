@@ -1,9 +1,10 @@
 const archive = require('./archive');
 const tasklist = require('./tasklist');
 const colorroles = require('./colorroles');
+const permissions = require('./permissions');
 const { SlashCommandBuilder } = require('discord.js');
 
-function createCommandsList(adminUserIds) {
+function createCommandsList() {
     return {
         archivechannel: {
             description: 'Archives content from the current channel',
@@ -117,13 +118,27 @@ function createCommandsList(adminUserIds) {
                 required: false
             }],
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                try {
+                    await tasklist.handleSlashCommand(interaction);
+                } catch (error) {
+                    console.error('Error in task command:', error);
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({
+                            content: `Error: ${error.message}`,
+                            ephemeral: true
+                        });
+                    } else if (interaction.deferred) {
+                        await interaction.editReply({
+                            content: `Error: ${error.message}`
+                        });
+                    }
+                }
             }
         },
         tasks: {
             description: 'Display all tasks',
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
             }
         },
         done: {
@@ -140,7 +155,7 @@ function createCommandsList(adminUserIds) {
                 required: false
             }],
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
             }
         },
         take: {
@@ -152,13 +167,13 @@ function createCommandsList(adminUserIds) {
                 required: true
             }],
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
             }
         },
         init: {
             description: 'Initialize the task system',
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
             }
         },
         delete: {
@@ -170,7 +185,7 @@ function createCommandsList(adminUserIds) {
                 required: true
             }],
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
             }
         },
         tag: {
@@ -190,13 +205,192 @@ function createCommandsList(adminUserIds) {
                 }
             ],
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
             }
         },
         history: {
             description: 'Display task history',
             execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction, adminUserIds);
+                await tasklist.handleSlashCommand(interaction);
+            }
+        },
+        assign: {
+            description: 'Assign a permission type to a user',
+            options: [
+                {
+                    name: 'type',
+                    description: 'The permission type to assign',
+                    type: 3, // STRING type
+                    required: true,
+                    choices: [
+                        { name: 'Admin', value: 'admin' },
+                        { name: 'Task', value: 'task' }
+                    ]
+                },
+                {
+                    name: 'user',
+                    description: 'The user to assign the permission to',
+                    type: 6, // USER type
+                    required: true
+                },
+                {
+                    name: 'remove',
+                    description: 'Remove the permission instead of adding it',
+                    type: 5, // BOOLEAN type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                // Check if the user has admin permissions
+                const hasAdminPerms = await permissions.hasAdminAccess(
+                    interaction.user.id, 
+                    interaction.guild
+                );
+                
+                if (!hasAdminPerms) {
+                    await interaction.reply({
+                        content: "You don't have permission to use this command.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+                
+                // Get the parameters from the interaction
+                const permissionType = interaction.options.getString('type');
+                const targetUser = interaction.options.getUser('user');
+                const remove = interaction.options.getBoolean('remove') || false;
+                
+                // Set the permission
+                try {
+                    await interaction.deferReply({ ephemeral: true });
+                    
+                    const result = await permissions.setPermission(
+                        targetUser.id,
+                        interaction.guild.id,
+                        permissionType,
+                        remove
+                    );
+                    
+                    // Generate the success message
+                    const action = remove ? "removed from" : "added to";
+                    const message = `Successfully ${action} ${permissionType} permissions: ${targetUser.username} (${targetUser.id})`;
+                    
+                    await interaction.editReply({
+                        content: message,
+                        ephemeral: true
+                    });
+                    
+                    // If we need to refresh commands, do it now
+                    if (result.needsRefresh) {
+                        try {
+                            // Register commands for this guild
+                            const { client } = interaction;
+                            
+                            // Import needed functions from index.js
+                            // This is a bit of a hack, but it works in this context
+                            const { registerGuildCommands } = require('./index.js');
+                            
+                            // Register commands for this specific guild
+                            await registerGuildCommands(client, interaction.guild);
+                            
+                            await interaction.followUp({
+                                content: "Commands refreshed successfully! Users may need to restart their Discord client to see changes.",
+                                ephemeral: true
+                            });
+                        } catch (error) {
+                            console.error('Error refreshing commands:', error);
+                            await interaction.followUp({
+                                content: "Permission updated, but there was an error refreshing commands. The bot may need to be restarted.",
+                                ephemeral: true
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error setting permission:', error);
+                    
+                    const errorMessage = error.message || "An unknown error occurred";
+                    
+                    if (interaction.deferred) {
+                        await interaction.editReply({
+                            content: `Error: ${errorMessage}`,
+                            ephemeral: true
+                        });
+                    } else {
+                        await interaction.reply({
+                            content: `Error: ${errorMessage}`,
+                            ephemeral: true
+                        });
+                    }
+                }
+            }
+        },
+        permissions: {
+            description: 'List users with specific permissions',
+            options: [
+                {
+                    name: 'type',
+                    description: 'The permission type to list',
+                    type: 3, // STRING type
+                    required: true,
+                    choices: [
+                        { name: 'Admin', value: 'admin' },
+                        { name: 'Task', value: 'task' }
+                    ]
+                }
+            ],
+            execute: async (interaction) => {
+                try {
+                    // Parse options
+                    const permissionType = interaction.options.getString('type');
+                    
+                    // Verify caller is an admin using both our system and roles
+                    const hasAdminPerms = await permissions.hasAdminAccess(
+                        interaction.user.id,
+                        interaction.guild
+                    );
+                    
+                    if (!hasAdminPerms) {
+                        await interaction.reply({
+                            content: "You don't have permission to use this command.",
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Get users with the specified permission
+                    const userIds = permissions.getUsersWithPermission(interaction.guild.id, permissionType);
+                    
+                    if (userIds.length === 0) {
+                        await interaction.reply({
+                            content: `No users have ${permissionType} permission in this server.`,
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                    
+                    // Fetch user details
+                    const userPromises = userIds.map(async (userId) => {
+                        try {
+                            const user = await interaction.client.users.fetch(userId);
+                            return `- ${user.tag} (${userId})`;
+                        } catch (e) {
+                            return `- Unknown User (${userId})`;
+                        }
+                    });
+                    
+                    const userList = await Promise.all(userPromises);
+                    
+                    await interaction.reply({
+                        content: `**Users with ${permissionType} permission:**\n${userList.join('\n')}`,
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    console.error('Error in permissions command:', error);
+                    await interaction.reply({
+                        content: `An error occurred: ${error.message}`,
+                        ephemeral: true
+                    });
+                }
             }
         }
     };

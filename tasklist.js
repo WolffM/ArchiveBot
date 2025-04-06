@@ -206,7 +206,11 @@ async function displayTaskList(message, guildId) {
 
 async function processTaskAction(interaction, action) {
     const input = interaction.options.getString('tasks');
-    await interaction.deferReply({ ephemeral: false });
+    
+    // Don't defer reply if already replied or deferred
+    if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ ephemeral: false });
+    }
 
     try {
         const tasksData = loadTasks(interaction.guild.id);
@@ -215,8 +219,128 @@ async function processTaskAction(interaction, action) {
         // Convert tag to lowercase for storage
         const lowerCaseTag = tag.toLowerCase();
 
-        // Check if input contains quotes (task descriptions)
-        if (input.includes('"')) {
+        // Set up action properties based on action string or object
+        let newStatus, verb, assignUser;
+        
+        if (typeof action === 'string') {
+            // Handle string actions
+            switch (action) {
+                case 'create':
+                    newStatus = 'New';
+                    verb = 'created';
+                    assignUser = false;
+                    break;
+                case 'take':
+                    newStatus = 'Active';
+                    verb = 'taken';
+                    assignUser = true;
+                    break;
+                case 'complete':
+                    newStatus = 'Completed';
+                    verb = 'completed';
+                    assignUser = true;
+                    break;
+                case 'delete':
+                    // Special case handling below
+                    verb = 'deleted';
+                    break;
+                case 'tag':
+                    // Special case handling below
+                    verb = 'tagged';
+                    break;
+                default:
+                    throw new Error(`Unknown action: ${action}`);
+            }
+        } else {
+            // Handle object actions (legacy format)
+            newStatus = action.newStatus;
+            verb = action.verb;
+            assignUser = action.assignUser;
+        }
+
+        // Special handling for delete
+        if (action === 'delete') {
+            // Handle task IDs
+            const taskIds = input.split(',')
+                .map(id => id.trim())
+                .filter(id => !isNaN(id))
+                .map(id => parseInt(id));
+
+            if (taskIds.length === 0) {
+                throw new Error('No valid task IDs provided.');
+            }
+
+            // Filter for existing tasks only
+            const tasksToDelete = [];
+            const notFoundIds = [];
+
+            taskIds.forEach(id => {
+                const taskIndex = tasksData.tasks.findIndex(t => t.id === id);
+                if (taskIndex !== -1) {
+                    tasksToDelete.push(tasksData.tasks[taskIndex]);
+                } else {
+                    notFoundIds.push(id);
+                }
+            });
+
+            if (tasksToDelete.length === 0) {
+                throw new Error('None of the provided task IDs exist.');
+            }
+
+            // Remove tasks from the array
+            tasksData.tasks = tasksData.tasks.filter(task => !taskIds.includes(task.id));
+            processedTasks = tasksToDelete;
+
+            let response = `Deleted ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`;
+            if (notFoundIds.length > 0) {
+                response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
+            }
+
+            await interaction.editReply({ content: response });
+        }
+        // Special handling for tag
+        else if (action === 'tag') {
+            // Handle task IDs
+            const taskIds = input.split(',')
+                .map(id => id.trim())
+                .filter(id => !isNaN(id))
+                .map(id => parseInt(id));
+
+            if (taskIds.length === 0) {
+                throw new Error('No valid task IDs provided.');
+            }
+
+            // Filter for existing tasks only
+            const existingTasks = [];
+            const notFoundIds = [];
+
+            taskIds.forEach(id => {
+                const task = tasksData.tasks.find(t => t.id === id);
+                if (task) {
+                    task.category = lowerCaseTag;
+                    existingTasks.push(task);
+                } else {
+                    notFoundIds.push(id);
+                }
+            });
+
+            if (existingTasks.length === 0) {
+                throw new Error('None of the provided task IDs exist.');
+            }
+
+            processedTasks = existingTasks;
+            
+            // For display, capitalize the first letter
+            const displayCategory = lowerCaseTag.charAt(0).toUpperCase() + lowerCaseTag.slice(1);
+            let response = `Assigned category "${displayCategory}" to ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`;
+            if (notFoundIds.length > 0) {
+                response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
+            }
+
+            await interaction.editReply({ content: response });
+        }
+        // Handle regular create/take/complete actions
+        else if (input.includes('"')) {
             const descriptions = input.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim()) || [input];
             if (!descriptions.length) {
                 throw new Error('Invalid task description format. Use "task name" for descriptions.');
@@ -230,13 +354,13 @@ async function processTaskAction(interaction, action) {
                     id: getNextTaskId(tasksData),
                     name: description,
                     createdDate: new Date().toISOString(),
-                    status: action.newStatus,
-                    assigned: action.assignUser ? interaction.user.id : '',
+                    status: newStatus,
+                    assigned: assignUser ? interaction.user.id : '',
                     category: lowerCaseTag
                 };
 
                 // If the task is being completed, add the completed date field
-                if (action.newStatus === 'Completed') {
+                if (newStatus === 'Completed') {
                     newTask.completedDate = new Date().toISOString();
                 }
 
@@ -245,7 +369,7 @@ async function processTaskAction(interaction, action) {
             });
 
             await interaction.editReply({
-                content: `Created and ${action.verb} ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`
+                content: `Created and ${verb} ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`
             });
         } else {
             // Handle task IDs
@@ -277,18 +401,18 @@ async function processTaskAction(interaction, action) {
 
             // Process existing tasks
             existingTasks.forEach(task => {
-                task.status = action.newStatus;
-                if (action.assignUser) {
+                task.status = newStatus;
+                if (assignUser) {
                     task.assigned = interaction.user.id;
                 }
                 // If the task is being marked as completed, log the completed date
-                if (action.newStatus === 'Completed') {
+                if (newStatus === 'Completed') {
                     task.completedDate = new Date().toISOString();
                 }
                 processedTasks.push(task);
             });
 
-            let response = `${action.verb} ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`;
+            let response = `${verb} ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`;
             if (notFoundIds.length > 0) {
                 response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
             }
@@ -299,6 +423,7 @@ async function processTaskAction(interaction, action) {
         helper.saveTasks(interaction.guild.id, tasksData);
         await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
     } catch (error) {
+        console.error('Task action error:', error);
         await interaction.editReply({
             content: `Error: ${error.message}`
         });
@@ -317,185 +442,100 @@ function createMessageProxy(interaction) {
 }
 
 async function handleSlashCommand(interaction) {
+    const { commandName } = interaction;
     const guildId = interaction.guild.id;
-
-    try {
-        switch (interaction.commandName) {
-            case 'done':
-            case 'take': {
-                await processTaskAction(interaction, {
-                    verb: interaction.commandName === 'done' ? 'completed' : 'taken',
-                    newStatus: interaction.commandName === 'done' ? 'Completed' : 'Active',
-                    assignUser: true
+    
+    if (commandName === 'init') {
+        // Only defer reply for this specific command
+        await interaction.deferReply({ ephemeral: true });
+        const tasksData = loadTasks(guildId);
+        await interaction.editReply(`Task system initialized. There are currently ${tasksData.tasks.length} tasks.`);
+        return;
+    }
+    
+    // Create a proxy message object to work with the existing display function
+    const messageProxy = createMessageProxy(interaction);
+    
+    // Handle specific commands without deferring reply here,
+    // since the called functions will handle that themselves
+    switch (commandName) {
+        case 'tasks':
+            // Don't defer here since displayTaskList will handle it
+            await displayTaskList(messageProxy, guildId);
+            // If the interaction hasn't been replied to yet, do it now
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({
+                    content: 'Tasks displayed! You can use `/task`, `/take`, and `/done` to manage tasks.',
+                    ephemeral: true
                 });
-                break;
+            } else {
+                await interaction.editReply('Tasks displayed! You can use `/task`, `/take`, and `/done` to manage tasks.');
             }
-
-            case 'task': {
-                const input = interaction.options.getString('description');
-                if (!input) {
-                    throw new Error('No task description provided');
-                }
-
-                await interaction.deferReply({ ephemeral: false });
-
-                try {
-                    console.log('Raw input:', input); // Debug log
-                    const tasksData = loadTasks(interaction.guild.id);
-                    const tag = interaction.options.getString('tag') || '';
-                    // Convert tag to lowercase for storage
-                    const lowerCaseTag = tag.toLowerCase();
-
-                    // Clean up input and handle multiple tasks
-                    const cleanInput = input.replace(/^description:\s*/, '').trim();
-                    console.log('Cleaned input:', cleanInput); // Debug log
-
-                    const descriptions = cleanInput.includes('"')
-                        ? cleanInput.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim()) || [cleanInput]
-                        : [cleanInput];
-
-                    console.log('Parsed descriptions:', descriptions); // Debug log
-
-                    const addedTasks = [];
-
-                    descriptions.forEach(description => {
-                        if (!description.trim()) return;
-
-                        const newTask = {
-                            id: getNextTaskId(tasksData),
-                            name: description,
-                            createdDate: new Date().toISOString(),
-                            status: 'New',
-                            assigned: '',
-                            category: lowerCaseTag
-                        };
-                        tasksData.tasks.push(newTask);
-                        addedTasks.push(newTask);
-                    });
-
-                    helper.saveTasks(interaction.guild.id, tasksData);
-
-                    await interaction.editReply({
-                        content: `Added ${addedTasks.length} task(s):\n${addedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`
-                    });
-
-                    await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
-                } catch (error) {
-                    await interaction.editReply({
-                        content: `Error: ${error.message}`
-                    });
-                }
-                break;
+            break;
+            
+        case 'task':
+            await processTaskAction(interaction, 'create');
+            break;
+            
+        case 'take':
+            await processTaskAction(interaction, 'take');
+            break;
+            
+        case 'done':
+            await processTaskAction(interaction, 'complete');
+            break;
+            
+        case 'delete':
+            await processTaskAction(interaction, 'delete');
+            break;
+            
+        case 'tag':
+            await processTaskAction(interaction, 'tag');
+            break;
+            
+        case 'history':
+            await interaction.deferReply({ ephemeral: true });
+            const tasksData = loadTasks(guildId);
+            const completedTasks = tasksData.tasks.filter(task => 
+                task && task.status === 'Completed' && task.completedDate
+            );
+            
+            // Sort by completed date, most recent first
+            completedTasks.sort((a, b) => 
+                new Date(b.completedDate) - new Date(a.completedDate)
+            );
+            
+            // Limit to most recent 100 tasks
+            const recentTasks = completedTasks.slice(0, 100);
+            
+            if (recentTasks.length === 0) {
+                await interaction.editReply('No completed tasks found.');
+                return;
             }
-
-            case 'delete': {
-                const input = interaction.options.getString('tasks');
-                await interaction.deferReply({ ephemeral: false });
-
-                try {
-                    const tasksData = loadTasks(interaction.guild.id);
-                    const taskIds = input.split(',')
-                        .map(id => id.trim())
-                        .filter(id => !isNaN(id))
-                        .map(id => parseInt(id));
-
-                    if (taskIds.length === 0) {
-                        throw new Error('No valid task IDs provided.');
-                    }
-
-                    const tasksToDelete = helper.getTasksByIds(taskIds, tasksData);
-                    tasksData.tasks = tasksData.tasks.filter(task => !taskIds.includes(task.id));
-
-                    helper.saveTasks(interaction.guild.id, tasksData);
-
-                    await interaction.editReply({
-                        content: `Deleted ${tasksToDelete.length} task(s):\n${tasksToDelete.map(t => `#${t.id}: ${t.name}`).join('\n')}`
-                    });
-
-                    await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
-                } catch (error) {
-                    await interaction.editReply({
-                        content: `Error: ${error.message}`
-                    });
-                }
-                break;
-            }
-
-            case 'tag': {
-                const category = interaction.options.getString('category');
-                const tasksInput = interaction.options.getString('tasks');
-                if (!category) {
-                    throw new Error('No category provided.');
-                }
-                if (!tasksInput) {
-                    throw new Error('No tasks provided.');
-                }
-
-                await interaction.deferReply({ ephemeral: false });
-                const tasksData = loadTasks(interaction.guild.id);
-                
-                // Check if category is a task ID
-                let categoryToApply = category.toLowerCase();
-                if (!isNaN(category) && category.trim() !== '') {
-                    const categoryTaskId = parseInt(category.trim());
-                    const categoryTask = tasksData.tasks.find(t => t.id === categoryTaskId);
-                    if (categoryTask && categoryTask.category) {
-                        categoryToApply = categoryTask.category.toLowerCase();
-                    }
-                }
-
-                // Parse comma separated task IDs (assumed numeric)
-                const taskIds = tasksInput.split(',')
-                    .map(id => id.trim())
-                    .filter(id => !isNaN(id))
-                    .map(id => parseInt(id));
-
-                if (taskIds.length === 0) {
-                    throw new Error('No valid task IDs provided.');
-                }
-
-                const updatedTasks = [];
-                const notFoundIds = [];
-                taskIds.forEach(id => {
-                    const task = tasksData.tasks.find(t => t.id === id);
-                    if (task) {
-                        task.category = categoryToApply; // add or update category
-                        updatedTasks.push(task);
-                    } else {
-                        notFoundIds.push(id);
-                    }
-                });
-
-                helper.saveTasks(interaction.guild.id, tasksData);
-
-                // For display, capitalize the first letter
-                const displayCategory = categoryToApply.charAt(0).toUpperCase() + categoryToApply.slice(1);
-                let response = `Assigned category "${displayCategory}" to ${updatedTasks.length} task(s):\n` +
-                    updatedTasks.map(t => `#${t.id}: ${t.name}`).join('\n');
-                if (notFoundIds.length > 0) {
-                    response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
-                }
-
-                await interaction.editReply({ content: response });
-                await displayTaskList(createMessageProxy(interaction), interaction.guild.id);
-                break;
-            }
-
-            case 'history': {
-                await interaction.reply({ content: 'Task history feature coming soon!', ephemeral: false });
-                // TODO: Implement task history functionality
-                break;
-            }
-
-        }
-    } catch (error) {
-        console.error('Command error:', error);
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({
-                content: `Error: ${error.message}`,
-                ephemeral: false
+            
+            const taskListText = recentTasks.map(task => 
+                `- ${task.name} (ID: ${task.id}, Completed: ${new Date(task.completedDate).toLocaleDateString()})`
+            ).join('\n');
+            
+            await interaction.editReply({
+                content: 'Recently completed tasks:',
+                ephemeral: true,
+                embeds: [{
+                    title: 'Task History',
+                    description: taskListText.length > 4000 
+                        ? taskListText.substring(0, 4000) + '...'
+                        : taskListText,
+                    color: 0x00ff00
+                }]
             });
-        }
+            break;
+            
+        default:
+            await interaction.reply({
+                content: 'Unknown command.',
+                ephemeral: true
+            });
+            break;
     }
 }
 
