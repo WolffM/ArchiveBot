@@ -29,7 +29,6 @@ const commandCategories = {
     history: COMMAND_CATEGORIES.TASK,
     tag: COMMAND_CATEGORIES.TASK,
     take: COMMAND_CATEGORIES.TASK,
-    tasks: COMMAND_CATEGORIES.TASK,
     task: COMMAND_CATEGORIES.TASK,
     delete: COMMAND_CATEGORIES.TASK
 };

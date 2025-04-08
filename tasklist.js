@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const users = require('./users');
 const helper = require('./helper');
+const permissions = require('./permissions');
 
 /*
 Task Schema:
@@ -205,19 +206,44 @@ async function displayTaskList(message, guildId) {
 }
 
 async function processTaskAction(interaction, action) {
-    const input = interaction.options.getString('tasks');
-    
     // Don't defer reply if already replied or deferred
     if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ ephemeral: false });
     }
 
-    try {
+    try {        
+        // Get input based on command type and handle parameter name inconsistencies
+        let input = null;
+        
+        // Try all possible parameter names based on command
+        if (action === 'create') {
+            // Try 'name' first (new style), then 'description' (old style)
+            input = interaction.options.getString('name') || 
+                    interaction.options.getString('description');
+        } else if (action === 'delete' || action === 'tag') {
+            // Try 'id' first (new style), then 'tasks' (old style) 
+            input = interaction.options.getString('id') || 
+                    interaction.options.getString('tasks');
+        } else {
+            // For take/done commands, try 'name' first (new style), then 'tasks' (old style)
+            input = interaction.options.getString('name') || 
+                    interaction.options.getString('tasks');
+        }
+        
+        // Validate input
+        if (!input) {
+            throw new Error(`No ${action === 'create' ? 'task description' : 'task IDs'} provided.`);
+        }
+        
         const tasksData = loadTasks(interaction.guild.id);
         let processedTasks = [];
-        const tag = interaction.options.getString('tag') || '';
-        // Convert tag to lowercase for storage
-        const lowerCaseTag = tag.toLowerCase();
+        
+        // Try both category and tag parameter names
+        const categoryValue = interaction.options.getString('category') || 
+                             interaction.options.getString('tag') || '';
+        
+        // Convert category to lowercase for storage
+        const lowerCaseCategory = categoryValue.toLowerCase();
 
         // Set up action properties based on action string or object
         let newStatus, verb, assignUser;
@@ -300,6 +326,17 @@ async function processTaskAction(interaction, action) {
         }
         // Special handling for tag
         else if (action === 'tag') {
+            // Get the category parameter for the tag command - try both parameter names
+            const categoryParam = interaction.options.getString('category') || 
+                                 interaction.options.getString('tag');
+            
+            if (!categoryParam) {
+                throw new Error('No category provided.');
+            }
+            
+            // Convert category to lowercase for storage
+            const tagLowerCase = categoryParam.toLowerCase();
+            
             // Handle task IDs
             const taskIds = input.split(',')
                 .map(id => id.trim())
@@ -317,7 +354,7 @@ async function processTaskAction(interaction, action) {
             taskIds.forEach(id => {
                 const task = tasksData.tasks.find(t => t.id === id);
                 if (task) {
-                    task.category = lowerCaseTag;
+                    task.category = tagLowerCase;
                     existingTasks.push(task);
                 } else {
                     notFoundIds.push(id);
@@ -331,7 +368,7 @@ async function processTaskAction(interaction, action) {
             processedTasks = existingTasks;
             
             // For display, capitalize the first letter
-            const displayCategory = lowerCaseTag.charAt(0).toUpperCase() + lowerCaseTag.slice(1);
+            const displayCategory = categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1).toLowerCase();
             let response = `Assigned category "${displayCategory}" to ${processedTasks.length} task(s):\n${processedTasks.map(t => `#${t.id}: ${t.name}`).join('\n')}`;
             if (notFoundIds.length > 0) {
                 response += `\n\nNote: Could not find tasks with IDs: ${notFoundIds.join(', ')}`;
@@ -340,10 +377,32 @@ async function processTaskAction(interaction, action) {
             await interaction.editReply({ content: response });
         }
         // Handle regular create/take/complete actions
-        else if (input.includes('"')) {
-            const descriptions = input.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim()) || [input];
+        else if (action === 'create' || input.includes('"')) {
+            let descriptions = [];
+            
+            // Handle different input formats for task creation
+            if (action === 'create') {
+                if (input.includes('"')) {
+                    // Extract quoted strings - handle format: "task1", "task2", "task3"
+                    descriptions = input.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim());
+                } 
+                
+                if (!descriptions || descriptions.length === 0) {
+                    if (input.includes(',') && !input.includes('"')) {
+                        // Handle comma-separated format without quotes: task1,task2,task3
+                        descriptions = input.split(',').map(item => item.trim()).filter(item => item.length > 0);
+                    } else {
+                        // Handle single task format: task1
+                        descriptions = [input.trim()];
+                    }
+                }
+            } else {
+                // For non-create actions, use the existing quote parsing logic
+                descriptions = input.match(/"([^"]+)"/g)?.map(d => d.replace(/"/g, '').trim()) || [input];
+            }
+                
             if (!descriptions.length) {
-                throw new Error('Invalid task description format. Use "task name" for descriptions.');
+                throw new Error('Invalid task description format. Use "task name" for descriptions or comma-separated values without spaces.');
             }
 
             // Create and process new tasks
@@ -356,7 +415,7 @@ async function processTaskAction(interaction, action) {
                     createdDate: new Date().toISOString(),
                     status: newStatus,
                     assigned: assignUser ? interaction.user.id : '',
-                    category: lowerCaseTag
+                    category: lowerCaseCategory
                 };
 
                 // If the task is being completed, add the completed date field
@@ -445,6 +504,16 @@ async function handleSlashCommand(interaction) {
     const { commandName } = interaction;
     const guildId = interaction.guild.id;
     
+    // Check if the user has task access before processing any task command
+    const hasTaskAccess = await permissions.checkTaskAccessWithRoles(interaction.user.id, interaction.guild);
+    if (!hasTaskAccess) {
+        await interaction.reply({
+            content: 'You do not have permission to use the task system. Please ask an admin for access.',
+            ephemeral: true
+        });
+        return;
+    }
+    
     if (commandName === 'init') {
         // Only defer reply for this specific command
         await interaction.deferReply({ ephemeral: true });
@@ -459,37 +528,28 @@ async function handleSlashCommand(interaction) {
     // Handle specific commands without deferring reply here,
     // since the called functions will handle that themselves
     switch (commandName) {
-        case 'tasks':
-            // Don't defer here since displayTaskList will handle it
-            await displayTaskList(messageProxy, guildId);
-            // If the interaction hasn't been replied to yet, do it now
-            if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({
-                    content: 'Tasks displayed! You can use `/task`, `/take`, and `/done` to manage tasks.',
-                    ephemeral: true
-                });
-            } else {
-                await interaction.editReply('Tasks displayed! You can use `/task`, `/take`, and `/done` to manage tasks.');
-            }
-            break;
-            
         case 'task':
+            // The task command creates new tasks
             await processTaskAction(interaction, 'create');
             break;
             
         case 'take':
+            // The take command assigns tasks to the user
             await processTaskAction(interaction, 'take');
             break;
             
         case 'done':
+            // The done command completes tasks
             await processTaskAction(interaction, 'complete');
             break;
             
         case 'delete':
+            // The delete command removes tasks
             await processTaskAction(interaction, 'delete');
             break;
             
         case 'tag':
+            // The tag command categorizes tasks
             await processTaskAction(interaction, 'tag');
             break;
             

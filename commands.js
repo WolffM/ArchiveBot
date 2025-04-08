@@ -135,21 +135,15 @@ function createCommandsList() {
                 }
             }
         },
-        tasks: {
-            description: 'Display all tasks',
-            execute: async (interaction) => {
-                await tasklist.handleSlashCommand(interaction);
-            }
-        },
         done: {
             description: 'Mark tasks as completed or create and complete a new task',
             options: [{
-                name: 'tasks',
+                name: 'name',
                 description: 'Task IDs (1,2,3) or descriptions ("task 1", "task 2")',
                 type: 3,  // STRING type
                 required: true
             }, {
-                name: 'tag',
+                name: 'category',
                 description: 'Category tag for the task',
                 type: 3, // STRING type
                 required: false
@@ -161,9 +155,9 @@ function createCommandsList() {
         take: {
             description: 'Take a task',
             options: [{
-                name: 'tasks',
+                name: 'name',
                 description: 'Task IDs (1,2,3) or descriptions ("task 1", "task 2")',
-                type: 3, // INTEGER type
+                type: 3, // STRING type
                 required: true
             }],
             execute: async (interaction) => {
@@ -177,10 +171,10 @@ function createCommandsList() {
             }
         },
         delete: {
-            description: 'Mark a task as abandoned',
+            description: 'Delete a task',
             options: [{
-                name: 'tasks',
-                description: 'Task IDs to mark as abandoned (comma-separated)',
+                name: 'id',
+                description: 'Task IDs to delete (comma-separated)',
                 type: 3, // STRING type
                 required: true
             }],
@@ -193,13 +187,13 @@ function createCommandsList() {
             options: [
                 {
                     name: 'category',
-                    description: 'The category name to Tag',
+                    description: 'The category name to apply',
                     type: 3, // STRING type
                     required: true
                 },
                 {
-                    name: 'tasks',
-                    description: 'Task IDs to mark as abandoned (comma-separated)',
+                    name: 'id',
+                    description: 'Task IDs to tag (comma-separated)',
                     type: 3, // STRING type
                     required: true
                 }
@@ -438,16 +432,21 @@ const commands = [
         .setName('done')
         .setDescription('Mark tasks as completed or create and complete new tasks')
         .addStringOption(option =>
-            option.setName('tasks')
+            option.setName('name')
                 .setDescription('Task IDs (1,2,3) or descriptions ("task 1", "task 2")')
                 .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('category')
+                .setDescription('Category tag for the task')
+                .setRequired(false)
         ),
 
     new SlashCommandBuilder()
         .setName('take')
         .setDescription('Take tasks or create and take new tasks')
         .addStringOption(option =>
-            option.setName('tasks')
+            option.setName('name')
                 .setDescription('Task IDs (1,2,3) or descriptions ("task 1", "task 2")')
                 .setRequired(true)
         ),
@@ -456,16 +455,21 @@ const commands = [
         .setName('task')
         .setDescription('Add new tasks')
         .addStringOption(option =>
-            option.setName('description')
+            option.setName('name')
                 .setDescription('Task descriptions ("task 1", "task 2")')
                 .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('category')
+                .setDescription('Category tag for the task')
+                .setRequired(false)
         ),
 
     new SlashCommandBuilder()
         .setName('delete')
         .setDescription('Delete tasks by ID')
         .addStringOption(option =>
-            option.setName('tasks')
+            option.setName('id')
                 .setDescription('Task IDs to delete (1,2,3)')
                 .setRequired(true)
         ),
@@ -479,8 +483,8 @@ const commands = [
                 .setRequired(true)
         )
         .addStringOption(option =>
-            option.setName('tasks')
-                .setDescription('Task IDs to mark as abandoned (comma-separated)')
+            option.setName('id')
+                .setDescription('Task IDs to tag (comma-separated)')
                 .setRequired(true)
         ),
         
