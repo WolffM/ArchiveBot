@@ -369,4 +369,26 @@ module.exports = {
     registerGuildCommands
 };
 
-client.login(process.env.DISCORD_TOKEN);
+// Graceful shutdown handling for PM2
+async function shutdown(signal) {
+    console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+    try {
+        client.destroy();
+        console.log('Discord client disconnected.');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+    }
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Start the bot
+client.login(process.env.DISCORD_TOKEN)
+    .then(() => console.log('Login successful'))
+    .catch(err => {
+        console.error('Failed to login:', err.message);
+        process.exit(1);
+    });
