@@ -602,4 +602,6 @@ async function handleSlashCommand(interaction) {
 module.exports = {
     handleSlashCommand,
     loadTasks,
+    // Pure functions exported for testing
+    getNextTaskId,
 };

@@ -586,4 +586,8 @@ module.exports = {
     handleArchiveServerCommand,
     updateReactionData,
     processNewArchiveFiles,
+    // Pure functions exported for testing
+    scrubMessages,
+    createAuthorsMap,
+    getLastArchiveTime,
 }; 

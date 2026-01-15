@@ -660,5 +660,9 @@ module.exports = {
     loadOrInferColorRoles,
     findColorRole,
     createColorRole,
-    removeExistingColorRoles
+    removeExistingColorRoles,
+    // Pure functions exported for testing
+    hexToHSL,
+    sortColorsByHSL,
+    getFriendlyColorName,
 }; 
