@@ -21,7 +21,7 @@ jest.mock('csv-writer', () => ({
         writeRecords: jest.fn()
     }))
 }));
-jest.mock('../helper', () => ({
+jest.mock('../utils/helper', () => ({
     ensureDirectoryExists: jest.fn(),
     loadJsonFile: jest.fn(),
     saveJsonFile: jest.fn(),
@@ -33,7 +33,7 @@ jest.mock('../helper', () => ({
 
 const fs = require('fs');
 const { createMockMessage } = require('./mocks/discord');
-const archive = require('../archive');
+const archive = require('../lib/archive');
 
 describe('archive.js', () => {
     beforeEach(() => {

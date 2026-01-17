@@ -1,8 +1,7 @@
-const archive = require('./archive');
-const tasklist = require('./tasklist');
-const colorroles = require('./colorroles');
-const permissions = require('./permissions');
-const { SlashCommandBuilder } = require('discord.js');
+const archive = require('./lib/archive');
+const tasklist = require('./lib/tasklist');
+const colorroles = require('./lib/colorroles');
+const permissions = require('./lib/permissions');
 
 function createCommandsList() {
     return {
@@ -427,83 +426,7 @@ const standardCommandsList = {
     }
 };
 
-const commands = [
-    new SlashCommandBuilder()
-        .setName('done')
-        .setDescription('Mark tasks as completed or create and complete new tasks')
-        .addStringOption(option =>
-            option.setName('name')
-                .setDescription('Task IDs (1,2,3) or descriptions ("task 1", "task 2")')
-                .setRequired(true)
-        )
-        .addStringOption(option =>
-            option.setName('category')
-                .setDescription('Category tag for the task')
-                .setRequired(false)
-        ),
-
-    new SlashCommandBuilder()
-        .setName('take')
-        .setDescription('Take tasks or create and take new tasks')
-        .addStringOption(option =>
-            option.setName('name')
-                .setDescription('Task IDs (1,2,3) or descriptions ("task 1", "task 2")')
-                .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName('task')
-        .setDescription('Add new tasks')
-        .addStringOption(option =>
-            option.setName('name')
-                .setDescription('Task descriptions ("task 1", "task 2")')
-                .setRequired(true)
-        )
-        .addStringOption(option =>
-            option.setName('category')
-                .setDescription('Category tag for the task')
-                .setRequired(false)
-        ),
-
-    new SlashCommandBuilder()
-        .setName('delete')
-        .setDescription('Delete tasks by ID')
-        .addStringOption(option =>
-            option.setName('id')
-                .setDescription('Task IDs to delete (1,2,3)')
-                .setRequired(true)
-        ),
-
-    new SlashCommandBuilder()
-        .setName('tag')
-        .setDescription('Tag a category to tasks')
-        .addStringOption(option =>
-            option.setName('category')
-                .setDescription('The category name to tag')
-                .setRequired(true)
-        )
-        .addStringOption(option =>
-            option.setName('id')
-                .setDescription('Task IDs to tag (comma-separated)')
-                .setRequired(true)
-        ),
-        
-    new SlashCommandBuilder()
-        .setName('color')
-        .setDescription('Set your display color')
-        .addStringOption(option =>
-            option.setName('color')
-                .setDescription('Color name, role ID, or hex color (e.g., Red, #FF0000)')
-                .setRequired(true)
-        ),
-        
-    new SlashCommandBuilder()
-        .setName('colorshow')
-        .setDescription('Show available colors and how to use custom colors')
-];
-
 module.exports = {
     createCommandsList,
-    standardCommandsList,
-    commands
+    standardCommandsList
 }; 

@@ -5,7 +5,7 @@
 
 // Mock fs before requiring the module
 jest.mock('fs');
-jest.mock('../helper', () => ({
+jest.mock('../utils/helper', () => ({
     ensureDirectoryExists: jest.fn()
 }));
 
@@ -13,7 +13,7 @@ const fs = require('fs');
 const { createMockPermissions } = require('./mocks/filesystem');
 const { createMockMember, createMockGuild } = require('./mocks/discord');
 
-const permissions = require('../permissions');
+const permissions = require('../lib/permissions');
 
 describe('permissions.js', () => {
     beforeEach(() => {

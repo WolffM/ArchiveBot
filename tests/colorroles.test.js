@@ -9,12 +9,12 @@ jest.mock('discord.js', () => ({
     PermissionsBitField: { Flags: { ManageRoles: 'MANAGE_ROLES' } },
     AttachmentBuilder: jest.fn()
 }));
-jest.mock('../helper', () => ({
+jest.mock('../utils/helper', () => ({
     ensureDirectoryExists: jest.fn()
 }));
 
 const { createMockColorRoles } = require('./mocks/filesystem');
-const colorroles = require('../colorroles');
+const colorroles = require('../lib/colorroles');
 
 describe('colorroles.js', () => {
     beforeEach(() => {

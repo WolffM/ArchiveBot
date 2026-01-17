@@ -5,16 +5,16 @@
 
 // Mock fs before requiring helper
 jest.mock('fs');
-jest.mock('./users', () => ({
+jest.mock('../utils/users', () => ({
     getGuildPath: jest.fn(() => './Output/tasklist/test-guild'),
     getDisplayName: jest.fn((userId) => `User_${userId}`)
-}), { virtual: true });
+}));
 
 const fs = require('fs');
 const { createMockTasksData } = require('./mocks/filesystem');
 
 // Import helper functions
-const helper = require('../helper');
+const helper = require('../utils/helper');
 
 describe('helper.js', () => {
     beforeEach(() => {

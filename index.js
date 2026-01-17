@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { createCommandsList, standardCommandsList } = require('./commands');
-const permissions = require('./permissions');
+const permissions = require('./lib/permissions');
 require('dotenv').config();
 
 // Define command categories

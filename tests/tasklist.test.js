@@ -5,24 +5,24 @@
 
 // Mock dependencies before requiring the module
 jest.mock('fs');
-jest.mock('../users', () => ({
+jest.mock('../utils/users', () => ({
     getGuildPath: jest.fn(() => './Output/tasklist/test-guild'),
     getDisplayName: jest.fn((userId) => `User_${userId}`)
 }));
-jest.mock('../helper', () => ({
+jest.mock('../utils/helper', () => ({
     ensureDirectoryExists: jest.fn(),
     splitMessage: jest.fn((content) => [content]),
     calculateAge: jest.fn(() => '1d'),
     saveTasks: jest.fn()
 }));
-jest.mock('../permissions', () => ({
+jest.mock('../lib/permissions', () => ({
     checkTaskAccessWithRoles: jest.fn().mockResolvedValue(true)
 }));
 
 const fs = require('fs');
 const { createMockTasksData } = require('./mocks/filesystem');
 
-const tasklist = require('../tasklist');
+const tasklist = require('../lib/tasklist');
 
 describe('tasklist.js', () => {
     beforeEach(() => {

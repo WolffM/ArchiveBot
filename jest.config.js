@@ -2,11 +2,8 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.js'],
   collectCoverageFrom: [
-    'helper.js',
-    'colorroles.js',
-    'permissions.js',
-    'archive.js',
-    'tasklist.js',
+    'lib/**/*.js',
+    'utils/**/*.js',
     '!**/node_modules/**'
   ],
   coverageDirectory: 'coverage',

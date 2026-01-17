@@ -19,16 +19,21 @@ ArchiveBot is a Discord bot built with discord.js v14 that provides:
 
 ```
 ArchiveBot/
-├── index.js          # Entry point, bot init, command routing
-├── commands.js       # Slash command definitions and handlers
-├── archive.js        # Message archiving to CSV/JSON/SQLite
-├── tasklist.js       # Task CRUD operations
-├── colorroles.js     # Color role management
-├── permissions.js    # Permission system
-├── helper.js         # Utility functions (file I/O, logging)
-├── users.js          # User data for task system
-├── Output/           # Generated archives and task data (gitignored)
-└── Resources/        # Guild configs like permissions (gitignored)
+├── index.js              # Entry point, bot init, command routing
+├── commands.js           # Slash command definitions and handlers
+├── lib/                  # Feature modules
+│   ├── archive.js        # Message archiving to CSV/JSON/SQLite
+│   ├── tasklist.js       # Task CRUD operations
+│   ├── colorroles.js     # Color role management
+│   └── permissions.js    # Permission system
+├── utils/                # Shared utilities
+│   ├── helper.js         # Utility functions (file I/O, logging)
+│   └── users.js          # User data for task system
+├── tests/                # Unit tests
+│   ├── mocks/            # Test mocks for Discord.js and filesystem
+│   └── *.test.js         # Test files
+├── Output/               # Generated archives and task data (gitignored)
+└── Resources/            # Guild configs like permissions (gitignored)
 ```
 
 ## Key Patterns
@@ -73,6 +78,12 @@ npm install
 
 # Run the bot
 node index.js
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
 ```
 
 ## Environment Variables
@@ -96,22 +107,25 @@ CLIENT_ID=<application_id>
 ```
 index.js
 ├── commands.js (command definitions)
-├── archive.js (archiving functions)
-├── tasklist.js (task functions)
-├── colorroles.js (color functions)
-├── permissions.js (permission checks)
-└── helper.js (utilities)
+└── lib/permissions.js (permission checks)
 
-tasklist.js
-├── helper.js
-└── users.js
+commands.js
+├── lib/archive.js (archiving functions)
+├── lib/tasklist.js (task functions)
+├── lib/colorroles.js (color functions)
+└── lib/permissions.js (permission checks)
 
-archive.js
-└── helper.js
+lib/tasklist.js
+├── utils/helper.js
+├── utils/users.js
+└── lib/permissions.js
 
-colorroles.js
-└── helper.js
+lib/archive.js
+└── utils/helper.js
 
-permissions.js
-└── helper.js
+lib/colorroles.js
+└── utils/helper.js
+
+lib/permissions.js
+└── utils/helper.js
 ```
