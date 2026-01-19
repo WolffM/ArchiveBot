@@ -146,97 +146,27 @@ async function getRoleForPermission(guild, permissionType) {
 
 client.once('ready', async () => {
     console.log('Bot is ready!');
-    
-    const adminCommandsList = createCommandsList();
-    
-    // Global commands
-    const globalCommands = [
-        // Standard commands visible to everyone
-        ...Object.entries(standardCommandsList)
-            .filter(([name]) => commandCategories[name] === COMMAND_CATEGORIES.DEFAULT)
-            .map(([name, cmd]) => {
-                const command = new SlashCommandBuilder()
-                    .setName(name)
-                    .setDescription(cmd.description);
-                
-                return addOptionsToCommand(command, cmd.options).toJSON();
-            })
-    ];
 
-    // Register global commands
+    // Global commands (visible to everyone)
+    const globalCommands = Object.entries(standardCommandsList)
+        .filter(([name]) => commandCategories[name] === COMMAND_CATEGORIES.DEFAULT)
+        .map(([name, cmd]) => {
+            const command = new SlashCommandBuilder()
+                .setName(name)
+                .setDescription(cmd.description);
+            return addOptionsToCommand(command, cmd.options).toJSON();
+        });
+
     await client.application.commands.set(globalCommands);
     console.log('Global commands registered!');
-    
-    // Log how many guilds we're in 
+
     console.log(`Bot is in ${client.guilds.cache.size} guilds`);
-    
-    // Prepare guild-specific commands
+
+    // Register guild-specific commands for each guild
     for (const guild of client.guilds.cache.values()) {
-        try {
-            // Find the admin and task roles
-            const adminRoleId = await getRoleForPermission(guild, 'admin');
-            const taskRoleId = await getRoleForPermission(guild, 'task');
-            
-            // Log which roles were found
-            console.log(`Guild ${guild.name}: Admin role: ${adminRoleId ? 'Found' : 'Not found'}, Task role: ${taskRoleId ? 'Found' : 'Not found'}`);
-            
-            // Admin commands - visible to those with admin role
-            const adminCmds = Object.entries(adminCommandsList)
-                .map(([name, cmd]) => {
-                    const command = new SlashCommandBuilder()
-                        .setName(name)
-                        .setDescription(cmd.description);
-                        
-                    // Set appropriate permissions based on what we found
-                    if (adminRoleId) {
-                        // If we found an admin role, administrators or specific role can use
-                        // Use "0" to restrict to no one by default
-                        command.setDefaultMemberPermissions('0');
-                        // Permissions will be handled through our permissions.js checks
-                    } else {
-                        // Fall back to requiring Administrator permission if no role found
-                        command.setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
-                    }
-                    
-                    return addOptionsToCommand(command, cmd.options).toJSON();
-                });
-                
-            // Task system commands - visible to those with task role
-            const taskCmds = Object.entries(standardCommandsList)
-                .filter(([name]) => commandCategories[name] === COMMAND_CATEGORIES.TASK)
-                .map(([name, cmd]) => {
-                    const command = new SlashCommandBuilder()
-                        .setName(name)
-                        .setDescription(cmd.description);
-                    
-                    // Set appropriate permissions based on what we found
-                    if (taskRoleId || adminRoleId) {
-                        // If we found task or admin roles, restrict by default
-                        // Use "0" to restrict to no one by default
-                        command.setDefaultMemberPermissions('0');
-                        // Permissions will be handled through our permissions.js checks
-                    } else {
-                        // Fall back to a reasonable default permission if no roles found
-                        command.setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages);
-                    }
-                    
-                    return addOptionsToCommand(command, cmd.options).toJSON();
-                });
-            
-            // Register all guild commands
-            await guild.commands.set([...adminCmds, ...taskCmds]);
-            
-            // Log which commands were registered
-            console.log(`Registered ${adminCmds.length} admin commands and ${taskCmds.length} task commands for guild ${guild.name}`);
-            
-            // The permissions.set approach is deprecated in newer Discord.js versions
-            // We're using defaultMemberPermissions instead
-            // No need to set permissions after registration
-        } catch (error) {
-            console.error(`Error registering commands for guild ${guild.name}:`, error);
-        }
+        await registerGuildCommands(client, guild);
     }
-    
+
     console.log('Guild-specific commands registered!');
 });
 
@@ -299,9 +229,11 @@ client.on('interactionCreate', async interaction => {
 // Register commands for a specific guild
 async function registerGuildCommands(client, guild) {
     // Get role IDs for this guild
-    const { adminRoleId, taskRoleId } = await permissions.loadRoleIds(guild);
+    const { adminRoleId, taskRoleId } = permissions.loadRoleIds(guild);
     console.log(`Guild ${guild.name}: Admin role: ${adminRoleId ? 'Found' : 'Not found'}, Task role: ${taskRoleId ? 'Found' : 'Not found'}`);
-    
+
+    const adminCommandsList = createCommandsList();
+
     try {
         // Admin commands - visible to those with admin role
         const adminCmds = Object.entries(adminCommandsList)

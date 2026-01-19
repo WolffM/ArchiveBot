@@ -193,4 +193,120 @@ describe('permissions.js', () => {
             expect(fs.writeFileSync).toHaveBeenCalled();
         });
     });
+
+    describe('setPermission', () => {
+        test('adds user to admin permissions', () => {
+            const mockPerms = createMockPermissions({ adminUsers: [], taskUsers: [] });
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockPerms));
+
+            const result = permissions.setPermission('user-123', 'guild-1', 'admin', false);
+            expect(result.success).toBe(true);
+            expect(result.changed).toBe(true);
+            expect(fs.writeFileSync).toHaveBeenCalled();
+        });
+
+        test('adds user to task permissions', () => {
+            const mockPerms = createMockPermissions({ adminUsers: [], taskUsers: [] });
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockPerms));
+
+            const result = permissions.setPermission('user-123', 'guild-1', 'task', false);
+            expect(result.success).toBe(true);
+            expect(result.changed).toBe(true);
+        });
+
+        test('removes user from admin permissions', () => {
+            const mockPerms = createMockPermissions({ adminUsers: ['user-123'], taskUsers: [] });
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockPerms));
+
+            const result = permissions.setPermission('user-123', 'guild-1', 'admin', true);
+            expect(result.success).toBe(true);
+            expect(result.changed).toBe(true);
+        });
+
+        test('handles case-insensitive permission type', () => {
+            const mockPerms = createMockPermissions({ adminUsers: [], taskUsers: [] });
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockPerms));
+
+            const result = permissions.setPermission('user-123', 'guild-1', 'ADMIN', false);
+            expect(result.success).toBe(true);
+        });
+
+        test('does not add duplicate user', () => {
+            const mockPerms = createMockPermissions({ adminUsers: ['user-123'], taskUsers: [] });
+            fs.readFileSync.mockReturnValue(JSON.stringify(mockPerms));
+
+            const result = permissions.setPermission('user-123', 'guild-1', 'admin', false);
+            expect(result.changed).toBe(false);
+        });
+    });
+
+    describe('loadRoleIds', () => {
+        test('returns admin and task role IDs when roles exist', () => {
+            const mockGuild = createMockGuild();
+            const adminRole = { id: 'admin-role-id', name: 'admin' };
+            const taskRole = { id: 'task-role-id', name: 'task' };
+            mockGuild.roles.cache.set(adminRole.id, adminRole);
+            mockGuild.roles.cache.set(taskRole.id, taskRole);
+            // Add find method to the cache
+            mockGuild.roles.cache.find = jest.fn((fn) => {
+                for (const role of mockGuild.roles.cache.values()) {
+                    if (fn(role)) return role;
+                }
+                return undefined;
+            });
+
+            const result = permissions.loadRoleIds(mockGuild);
+            expect(result.adminRoleId).toBe('admin-role-id');
+            expect(result.taskRoleId).toBe('task-role-id');
+        });
+
+        test('returns null for missing roles', () => {
+            const mockGuild = createMockGuild();
+            mockGuild.roles.cache.find = jest.fn(() => undefined);
+
+            const result = permissions.loadRoleIds(mockGuild);
+            expect(result.adminRoleId).toBeNull();
+            expect(result.taskRoleId).toBeNull();
+        });
+    });
+
+    describe('getPermissionRole', () => {
+        test('finds admin role by name', () => {
+            const mockGuild = createMockGuild();
+            const adminRole = { id: 'admin-role-id', name: 'admin' };
+            mockGuild.roles.cache.set(adminRole.id, adminRole);
+            mockGuild.roles.cache.find = jest.fn((fn) => {
+                for (const role of mockGuild.roles.cache.values()) {
+                    if (fn(role)) return role;
+                }
+                return undefined;
+            });
+
+            const result = permissions.getPermissionRole(mockGuild, 'admin');
+            expect(result).toBe('admin-role-id');
+        });
+
+        test('finds task role by name', () => {
+            const mockGuild = createMockGuild();
+            const taskRole = { id: 'task-role-id', name: 'task' };
+            mockGuild.roles.cache.set(taskRole.id, taskRole);
+            mockGuild.roles.cache.find = jest.fn((fn) => {
+                for (const role of mockGuild.roles.cache.values()) {
+                    if (fn(role)) return role;
+                }
+                return undefined;
+            });
+
+            const result = permissions.getPermissionRole(mockGuild, 'task');
+            expect(result).toBe('task-role-id');
+        });
+
+        test('returns null when role not found', () => {
+            const mockGuild = createMockGuild();
+            mockGuild.roles.cache.find = jest.fn(() => undefined);
+
+            const result = permissions.getPermissionRole(mockGuild, 'admin');
+            expect(result).toBeNull();
+        });
+    });
 });

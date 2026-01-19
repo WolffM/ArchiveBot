@@ -273,30 +273,12 @@ function createCommandsList() {
                         ephemeral: true
                     });
                     
-                    // If we need to refresh commands, do it now
+                    // Signal that commands may need refresh (handled by index.js event listener)
                     if (result.needsRefresh) {
-                        try {
-                            // Register commands for this guild
-                            const { client } = interaction;
-                            
-                            // Import needed functions from index.js
-                            // This is a bit of a hack, but it works in this context
-                            const { registerGuildCommands } = require('./index.js');
-                            
-                            // Register commands for this specific guild
-                            await registerGuildCommands(client, interaction.guild);
-                            
-                            await interaction.followUp({
-                                content: "Commands refreshed successfully! Users may need to restart their Discord client to see changes.",
-                                ephemeral: true
-                            });
-                        } catch (error) {
-                            console.error('Error refreshing commands:', error);
-                            await interaction.followUp({
-                                content: "Permission updated, but there was an error refreshing commands. The bot may need to be restarted.",
-                                ephemeral: true
-                            });
-                        }
+                        await interaction.followUp({
+                            content: "Permission updated! Users may need to restart their Discord client to see command changes.",
+                            ephemeral: true
+                        });
                     }
                 } catch (error) {
                     console.error('Error setting permission:', error);
@@ -398,13 +380,6 @@ const standardCommandsList = {
                 ephemeral: true
             });
         }
-    },
-    myrecap: {
-        description: 'Shows your message history recap',
-        execute: async (interaction) => {
-            await interaction.deferReply();
-            await archive.handleMyRecapCommand(interaction);
-        },
     },
     color: {
         description: 'Set your display color using a color name, role ID, or hex color',
