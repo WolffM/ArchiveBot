@@ -28,8 +28,9 @@ jobs:
 
           payload=$(cat <<EOF
           {
-            "event_type": "redeploy_archive_bot",
+            "event_type": "redeploy_service",
             "client_payload": {
+              "service": "archive-bot",
               "sha": "${{ github.sha }}",
               "ref": "${{ github.ref }}"
             }
