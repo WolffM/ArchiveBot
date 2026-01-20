@@ -14,27 +14,41 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger PM2 redeploy
+      - name: Trigger hadoku_site to redeploy
         env:
-          MGMT_SERVICE_KEY: ${{ secrets.MGMT_SERVICE_KEY }}
+          HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
         run: |
-          echo "Triggering redeploy for archive-bot..."
+          echo "Requesting hadoku_site to redeploy archive-bot..."
           echo "Commit: ${{ github.sha }}"
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://hadoku.me/mgmt/api/archive-bot/redeploy" \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: $MGMT_SERVICE_KEY")
+          if [ -z "$HADOKU_SITE_TOKEN" ]; then
+            echo "❌ Error: HADOKU_SITE_TOKEN not available"
+            exit 1
+          fi
 
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
+          payload=$(cat <<EOF
+          {
+            "event_type": "redeploy_archive_bot",
+            "client_payload": {
+              "sha": "${{ github.sha }}",
+              "ref": "${{ github.ref }}"
+            }
+          }
+          EOF
+          )
 
-          echo "Response: $BODY"
-          echo "HTTP Status: $HTTP_CODE"
+          status_code=$(curl -sS \
+            -o /dev/null \
+            -w "%{http_code}" \
+            -X POST "https://api.github.com/repos/WolffM/hadoku_site/dispatches" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$payload")
 
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "Deployment triggered successfully!"
+          if [ "$status_code" = "204" ]; then
+            echo "✅ Notified hadoku_site to redeploy archive-bot"
           else
-            echo "Deployment trigger failed"
+            echo "❌ Failed to notify hadoku_site (HTTP $status_code)"
             exit 1
           fi
