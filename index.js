@@ -2,7 +2,10 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits } = 
 const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
+const { createLogger } = require('./utils/logger');
 require('dotenv').config();
+
+const log = createLogger('bot');
 
 // Define command categories
 const COMMAND_CATEGORIES = {
@@ -143,13 +146,13 @@ async function getRoleForPermission(guild, permissionType) {
             
         return role ? role.id : null;
     } catch (error) {
-        console.error(`Error finding ${permissionType} role:`, error);
+        log.error('getRoleForPermission', error, { permissionType });
         return null;
     }
 }
 
 client.once('ready', async () => {
-    console.log('Bot is ready!');
+    log.success('ready', { guilds: client.guilds.cache.size });
 
     // Initialize scheduler for reminders and events
     scheduler.initializeScheduler(client);
@@ -165,16 +168,14 @@ client.once('ready', async () => {
         });
 
     await client.application.commands.set(globalCommands);
-    console.log('Global commands registered!');
-
-    console.log(`Bot is in ${client.guilds.cache.size} guilds`);
+    log.info('registerCommands', { type: 'global', count: globalCommands.length });
 
     // Register guild-specific commands for each guild
     for (const guild of client.guilds.cache.values()) {
         await registerGuildCommands(client, guild);
     }
 
-    console.log('Guild-specific commands registered!');
+    log.success('initialize', { message: 'All commands registered' });
 });
 
 client.on('interactionCreate', async interaction => {
@@ -242,7 +243,7 @@ client.on('messageCreate', async message => {
     try {
         await scheduler.handleMessageReminder(message);
     } catch (error) {
-        console.error('Error handling message reminder:', error);
+        log.error('messageCreate', error, { type: 'reminder handler' });
     }
 });
 
@@ -250,7 +251,12 @@ client.on('messageCreate', async message => {
 async function registerGuildCommands(client, guild) {
     // Get role IDs for this guild
     const { adminRoleId, taskRoleId } = permissions.loadRoleIds(guild);
-    console.log(`Guild ${guild.name}: Admin role: ${adminRoleId ? 'Found' : 'Not found'}, Task role: ${taskRoleId ? 'Found' : 'Not found'}`);
+    log.info('registerGuildCommands', {
+        guildId: guild.id,
+        guildName: guild.name,
+        adminRole: adminRoleId ? 'found' : 'not found',
+        taskRole: taskRoleId ? 'found' : 'not found'
+    });
 
     const adminCommandsList = createCommandsList();
 
@@ -300,9 +306,12 @@ async function registerGuildCommands(client, guild) {
         
         // Register all guild commands
         await guild.commands.set([...adminCmds, ...taskCmds]);
-        
-        // Log which commands were registered
-        console.log(`Registered ${adminCmds.length} admin commands and ${taskCmds.length} task commands for guild ${guild.name}`);
+
+        log.success('registerGuildCommands', {
+            guildId: guild.id,
+            adminCommands: adminCmds.length,
+            taskCommands: taskCmds.length
+        });
         
         // The permissions.set approach is deprecated in newer Discord.js versions
         // We're using defaultMemberPermissions instead
@@ -310,7 +319,7 @@ async function registerGuildCommands(client, guild) {
         
         return true;
     } catch (error) {
-        console.error(`Error registering commands for guild ${guild.name}:`, error);
+        log.error('registerGuildCommands', error, { guildId: guild.id, guildName: guild.name });
         return false;
     }
 }
@@ -323,14 +332,14 @@ module.exports = {
 
 // Graceful shutdown handling for PM2
 async function shutdown(signal) {
-    console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+    log.info('shutdown', { signal });
     try {
         scheduler.stopScheduler();
         client.destroy();
-        console.log('Discord client disconnected.');
+        log.success('shutdown', { message: 'Discord client disconnected' });
         process.exit(0);
     } catch (error) {
-        console.error('Error during shutdown:', error);
+        log.error('shutdown', error);
         process.exit(1);
     }
 }
@@ -340,8 +349,8 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Start the bot
 client.login(process.env.DISCORD_TOKEN)
-    .then(() => console.log('Login successful'))
+    .then(() => log.success('login', { message: 'Login successful' }))
     .catch(err => {
-        console.error('Failed to login:', err.message);
+        log.error('login', err);
         process.exit(1);
     });
