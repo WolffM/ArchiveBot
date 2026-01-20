@@ -192,3 +192,50 @@ CLIENT_ID=your_application_id
    - Send Messages
    - Read Message History
    - Use Slash Commands
+
+---
+
+## Deployment & Operations
+
+### Process Management
+The bot runs as a PM2 managed service on the hadoku.me server.
+
+**Service name:** `archive-bot`
+
+### CI/CD Pipeline
+```
+Push to main
+    ↓
+GitHub Actions (.github/workflows/deploy.yml)
+    ↓
+POST https://hadoku.me/mgmt/api/archive-bot/redeploy
+    ↓
+mgmt-api: git pull + pm2 restart
+    ↓
+Bot online with new code
+```
+
+### GitHub Secrets
+| Secret | Purpose |
+|--------|---------|
+| `MGMT_SERVICE_KEY` | API key for hadoku.me mgmt-api |
+
+### Monitoring Commands
+```bash
+# Check if bot is running
+pm2 status archive-bot
+
+# View live logs
+pm2 logs archive-bot
+
+# Restart manually
+pm2 restart archive-bot
+```
+
+### Graceful Shutdown
+The bot handles `SIGTERM` and `SIGINT` signals to:
+1. Log the shutdown signal
+2. Disconnect Discord client cleanly
+3. Exit with appropriate code
+
+This ensures PM2 restarts don't cause Discord API issues.

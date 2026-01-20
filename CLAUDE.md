@@ -76,7 +76,7 @@ Task commands check `permissions.hasTaskAccess(guildId, userId)`
 # Install dependencies
 npm install
 
-# Run the bot
+# Run the bot locally
 node index.js
 
 # Run tests
@@ -86,13 +86,49 @@ npm test
 npm run test:coverage
 ```
 
+## Deployment
+
+The bot is managed via PM2 on the hadoku.me server.
+
+### Automatic Deployment
+Pushing to `main` triggers the GitHub Actions workflow (`.github/workflows/deploy.yml`) which:
+1. Calls `POST https://hadoku.me/mgmt/api/archive-bot/redeploy`
+2. The mgmt-api pulls latest code and restarts the PM2 process
+
+### Manual Deployment
+```bash
+# Via hadoku_site
+pnpm local:restart archive-bot
+
+# Or via API
+curl -X POST https://hadoku.me/mgmt/api/archive-bot/redeploy -H "X-API-Key: <key>"
+```
+
+### Monitoring
+```bash
+# Check status
+pm2 status archive-bot
+
+# View logs
+pm2 logs archive-bot
+
+# Via API
+curl https://hadoku.me/mgmt/api/archive-bot/logs -H "X-API-Key: <key>"
+```
+
+### Graceful Shutdown
+The bot handles SIGTERM/SIGINT signals for clean PM2 restarts - see `index.js` shutdown handler.
+
 ## Environment Variables
 
-Required in `.env`:
+Required in `.env` (local) or hadoku_site `.env` (production):
 ```
 DISCORD_TOKEN=<bot_token>
 CLIENT_ID=<application_id>
 ```
+
+### GitHub Secrets Required
+- `MGMT_SERVICE_KEY` - API key for hadoku.me mgmt-api
 
 ## When Making Changes
 
