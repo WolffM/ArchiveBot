@@ -2,6 +2,7 @@ const archive = require('./lib/archive');
 const tasklist = require('./lib/tasklist');
 const colorroles = require('./lib/colorroles');
 const permissions = require('./lib/permissions');
+const scheduler = require('./lib/scheduler');
 
 function createCommandsList() {
     return {
@@ -366,6 +367,84 @@ function createCommandsList() {
                         ephemeral: true
                     });
                 }
+            }
+        },
+        add: {
+            description: 'Add a scheduled reminder or event',
+            options: [
+                {
+                    name: 'type',
+                    description: 'Type of scheduled item',
+                    type: 3, // STRING type
+                    required: true,
+                    choices: [
+                        { name: 'Reminder', value: 'reminder' },
+                        { name: 'Event', value: 'event' }
+                    ]
+                },
+                {
+                    name: 'at',
+                    description: 'When to trigger (e.g. "2026-01-20 10:00" or "10:00" or "tomorrow 14:30")',
+                    type: 3, // STRING type
+                    required: true
+                },
+                {
+                    name: 'message',
+                    description: 'The message to display',
+                    type: 3, // STRING type
+                    required: true
+                },
+                {
+                    name: 'recurring',
+                    description: 'Repeat pattern (e.g. every1d, every1w, every2w, every1m, every1y)',
+                    type: 3, // STRING type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                await scheduler.handleAddCommand(interaction);
+            }
+        },
+        remove: {
+            description: 'Remove a scheduled reminder or event',
+            options: [
+                {
+                    name: 'id',
+                    description: 'The ID of the item to remove',
+                    type: 4, // INTEGER type
+                    required: true
+                },
+                {
+                    name: 'type',
+                    description: 'Filter by type (optional)',
+                    type: 3, // STRING type
+                    required: false,
+                    choices: [
+                        { name: 'Reminder', value: 'reminder' },
+                        { name: 'Event', value: 'event' }
+                    ]
+                }
+            ],
+            execute: async (interaction) => {
+                await scheduler.handleRemoveCommand(interaction);
+            }
+        },
+        show: {
+            description: 'Show scheduled reminders and events',
+            options: [
+                {
+                    name: 'type',
+                    description: 'Filter by type (optional)',
+                    type: 3, // STRING type
+                    required: false,
+                    choices: [
+                        { name: 'Reminder', value: 'reminder' },
+                        { name: 'Event', value: 'event' }
+                    ]
+                }
+            ],
+            execute: async (interaction) => {
+                await scheduler.handleShowCommand(interaction);
             }
         }
     };

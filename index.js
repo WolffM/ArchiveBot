@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
+const scheduler = require('./lib/scheduler');
 require('dotenv').config();
 
 // Define command categories
@@ -30,7 +31,10 @@ const commandCategories = {
     tag: COMMAND_CATEGORIES.TASK,
     take: COMMAND_CATEGORIES.TASK,
     task: COMMAND_CATEGORIES.TASK,
-    delete: COMMAND_CATEGORIES.TASK
+    delete: COMMAND_CATEGORIES.TASK,
+    add: COMMAND_CATEGORIES.TASK,
+    remove: COMMAND_CATEGORIES.TASK,
+    show: COMMAND_CATEGORIES.TASK
 };
 
 const client = new Client({
@@ -147,6 +151,9 @@ async function getRoleForPermission(guild, permissionType) {
 client.once('ready', async () => {
     console.log('Bot is ready!');
 
+    // Initialize scheduler for reminders and events
+    scheduler.initializeScheduler(client);
+
     // Global commands (visible to everyone)
     const globalCommands = Object.entries(standardCommandsList)
         .filter(([name]) => commandCategories[name] === COMMAND_CATEGORIES.DEFAULT)
@@ -224,6 +231,19 @@ client.on('interactionCreate', async interaction => {
         content: "Command not found.",
         ephemeral: true
     });
+});
+
+// Message listener for reply-based reminders ("remind me in 3h")
+client.on('messageCreate', async message => {
+    // Ignore bot messages and DMs
+    if (message.author.bot || !message.guild) return;
+
+    // Check if it's a "remind me" message
+    try {
+        await scheduler.handleMessageReminder(message);
+    } catch (error) {
+        console.error('Error handling message reminder:', error);
+    }
 });
 
 // Register commands for a specific guild
@@ -305,6 +325,7 @@ module.exports = {
 async function shutdown(signal) {
     console.log(`\nReceived ${signal}. Shutting down gracefully...`);
     try {
+        scheduler.stopScheduler();
         client.destroy();
         console.log('Discord client disconnected.');
         process.exit(0);
