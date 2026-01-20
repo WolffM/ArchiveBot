@@ -1,0 +1,40 @@
+name: Deploy to PM2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger PM2 redeploy
+        env:
+          MGMT_SERVICE_KEY: ${{ secrets.MGMT_SERVICE_KEY }}
+        run: |
+          echo "Triggering redeploy for archive-bot..."
+          echo "Commit: ${{ github.sha }}"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://hadoku.me/mgmt/api/archive-bot/redeploy" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: $MGMT_SERVICE_KEY")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Deployment triggered successfully!"
+          else
+            echo "Deployment trigger failed"
+            exit 1
+          fi
