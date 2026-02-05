@@ -447,6 +447,24 @@ function createCommandsList() {
                     required: false
                 },
                 {
+                    name: 'recurring',
+                    description: 'Repeat frequency',
+                    type: 3, // STRING type
+                    required: false,
+                    choices: [
+                        { name: 'Daily', value: 'daily' },
+                        { name: 'Weekly', value: 'weekly' },
+                        { name: 'Monthly', value: 'monthly' },
+                        { name: 'Yearly', value: 'yearly' }
+                    ]
+                },
+                {
+                    name: 'remind_before',
+                    description: 'Send reminder before event (e.g. "2h", "30m", "1d")',
+                    type: 3, // STRING type
+                    required: false
+                },
+                {
                     name: 'image',
                     description: 'Cover image for the event',
                     type: 11, // ATTACHMENT type
