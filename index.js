@@ -95,6 +95,22 @@ function addOptionsToCommand(command, options) {
                     .setDescription(opt.description)
                     .setRequired(opt.required || false)
             );
+        } else if (opt.type === 7) { // CHANNEL
+            command.addChannelOption(option => {
+                option.setName(opt.name)
+                    .setDescription(opt.description)
+                    .setRequired(opt.required || false);
+                if (opt.channel_types && Array.isArray(opt.channel_types)) {
+                    option.addChannelTypes(...opt.channel_types);
+                }
+                return option;
+            });
+        } else if (opt.type === 11) { // ATTACHMENT
+            command.addAttachmentOption(option =>
+                option.setName(opt.name)
+                    .setDescription(opt.description)
+                    .setRequired(opt.required || false)
+            );
         }
     });
     
