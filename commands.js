@@ -476,12 +476,12 @@ function createCommandsList() {
             }
         },
         remove: {
-            description: 'Remove a scheduled reminder or event',
+            description: 'Remove scheduled reminders or events',
             options: [
                 {
                     name: 'id',
-                    description: 'The ID of the item to remove',
-                    type: 4, // INTEGER type
+                    description: 'ID(s) to remove (e.g. "5" or "6,7,8")',
+                    type: 3, // STRING type for multiple IDs
                     required: true
                 },
                 {

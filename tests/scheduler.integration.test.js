@@ -266,8 +266,8 @@ describe('Scheduler Integration Tests', () => {
                 channel: mockChannel,
                 user: { id: 'creator-user-123', username: 'EventCreator' },
                 options: {
-                    getInteger: jest.fn((name) => name === 'id' ? eventItem.id : null),
-                    getString: jest.fn(() => null)
+                    getInteger: jest.fn(() => null),
+                    getString: jest.fn((name) => name === 'id' ? String(eventItem.id) : null)
                 }
             });
 
