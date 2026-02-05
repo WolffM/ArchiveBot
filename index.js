@@ -45,7 +45,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMessageReactions
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildScheduledEvents
     ]
 });
 
@@ -260,6 +261,23 @@ client.on('messageCreate', async message => {
         await scheduler.handleMessageReminder(message);
     } catch (error) {
         log.error('messageCreate', error, { type: 'reminder handler' });
+    }
+});
+
+// Scheduled event listeners - sync Discord UI edits to our scheduler
+client.on('guildScheduledEventUpdate', async (oldEvent, newEvent) => {
+    try {
+        await scheduler.handleScheduledEventUpdate(oldEvent, newEvent);
+    } catch (error) {
+        log.error('guildScheduledEventUpdate', error, { eventId: newEvent?.id });
+    }
+});
+
+client.on('guildScheduledEventDelete', async (event) => {
+    try {
+        await scheduler.handleScheduledEventDelete(event);
+    } catch (error) {
+        log.error('guildScheduledEventDelete', error, { eventId: event?.id });
     }
 });
 
