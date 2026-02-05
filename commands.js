@@ -369,40 +369,56 @@ function createCommandsList() {
                 }
             }
         },
-        add: {
-            description: 'Add a scheduled reminder or event',
+        reminder: {
+            description: 'Add a scheduled reminder (@everyone notification)',
             options: [
                 {
-                    name: 'type',
-                    description: 'Type of scheduled item',
-                    type: 3, // STRING type
-                    required: true,
-                    choices: [
-                        { name: 'Reminder', value: 'reminder' },
-                        { name: 'Event', value: 'event' }
-                    ]
-                },
-                {
                     name: 'at',
-                    description: 'When to trigger (e.g. "2026-01-20 10:00" or "10:00" or "tomorrow 14:30")',
+                    description: 'When to trigger (e.g. "2h", "30m", "10:00", "2026-01-20 10:00")',
                     type: 3, // STRING type
                     required: true
                 },
                 {
                     name: 'message',
-                    description: 'The message to display',
+                    description: 'The reminder message',
                     type: 3, // STRING type
                     required: true
                 },
                 {
                     name: 'recurring',
-                    description: 'Repeat pattern (e.g. every1d, every1w, every2w, every1m, every1y)',
+                    description: 'Repeat pattern (e.g. 1d, 1w, 2w, 1m, 1y)',
                     type: 3, // STRING type
                     required: false
                 }
             ],
             execute: async (interaction) => {
-                await scheduler.handleAddCommand(interaction);
+                await scheduler.handleReminderCommand(interaction);
+            }
+        },
+        event: {
+            description: 'Add a scheduled event notification',
+            options: [
+                {
+                    name: 'at',
+                    description: 'When to trigger (e.g. "2h", "30m", "10:00", "2026-01-20 10:00")',
+                    type: 3, // STRING type
+                    required: true
+                },
+                {
+                    name: 'message',
+                    description: 'The event message',
+                    type: 3, // STRING type
+                    required: true
+                },
+                {
+                    name: 'recurring',
+                    description: 'Repeat pattern (e.g. 1d, 1w, 2w, 1m, 1y)',
+                    type: 3, // STRING type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                await scheduler.handleEventCommand(interaction);
             }
         },
         remove: {
