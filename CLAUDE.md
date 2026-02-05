@@ -7,6 +7,8 @@ ArchiveBot is a Discord bot built with discord.js v14 that provides:
 - **Task management** - Guild-based task tracking with assignments and categories
 - **Color roles** - Let users pick display colors from available guild roles
 - **Permission system** - Admin/task access control per guild
+- **Reminders** - Scheduled @everyone reminders with recurring support
+- **Events** - Create Discord Scheduled Events via slash command
 
 ## Tech Stack
 
@@ -25,7 +27,8 @@ ArchiveBot/
 │   ├── archive.js        # Message archiving to CSV/JSON/SQLite
 │   ├── tasklist.js       # Task CRUD operations
 │   ├── colorroles.js     # Color role management
-│   └── permissions.js    # Permission system
+│   ├── permissions.js    # Permission system
+│   └── scheduler.js      # Reminders and Discord Scheduled Events
 ├── utils/                # Shared utilities
 │   ├── helper.js         # Utility functions (file I/O, logging)
 │   └── users.js          # User data for task system
@@ -42,20 +45,37 @@ ArchiveBot/
 Commands are defined in `commands.js` with this pattern:
 ```javascript
 {
-  data: new SlashCommandBuilder().setName('commandname')...,
-  async execute(interaction) { ... }
+  description: 'Command description',
+  options: [
+    { name: 'param', description: 'desc', type: 3, required: true }
+  ],
+  execute: async (interaction) => { ... }
 }
 ```
+
+Option types: 3=STRING, 4=INTEGER, 5=BOOLEAN, 6=USER, 7=CHANNEL, 11=ATTACHMENT
+
+For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels.
 
 ### Guild Data Storage
 Each guild's data is stored in separate directories:
 - `Resources/{guildId}/` - Config (permissions, color roles)
-- `Output/{guildId}/` - Generated data (archives)
+- `Output/{guildId}/` - Generated data (archives, scheduled items)
 - `Output/tasklist/{guildId}/` - Task system data
 
 ### Permission Checks
 Admin commands check `permissions.hasAdminAccess(guildId, userId)`
 Task commands check `permissions.hasTaskAccess(guildId, userId)`
+
+### Time Parsing (scheduler.js)
+The scheduler supports flexible time formats:
+- Relative: `2h`, `30m`, `1d`, `2w`, `1h30m`
+- 24-hour: `10:00`, `4:00`, `16:30`
+- 12-hour: `4am`, `4pm`, `4:30am`, `10:30pm`
+- With date: `2026-01-20 10:00`, `2026-01-20 4pm`
+- Tomorrow: `tomorrow 10:00`, `tomorrow 4pm`
+
+Use `parseRelativeTime()` or `parseDateTime()` from scheduler.js.
 
 ## Known Issues to Be Aware Of
 
@@ -119,6 +139,9 @@ curl https://hadoku.me/mgmt/api/archive-bot/logs -H "X-API-Key: <key>"
 ### Graceful Shutdown
 The bot handles SIGTERM/SIGINT signals for clean PM2 restarts - see `index.js` shutdown handler.
 
+### Command Registration
+Slash commands are automatically re-registered on PM2 start/restart. No manual registration needed.
+
 ## Environment Variables
 
 Required in `.env` (local) or hadoku_site `.env` (production):
@@ -149,7 +172,8 @@ commands.js
 ├── lib/archive.js (archiving functions)
 ├── lib/tasklist.js (task functions)
 ├── lib/colorroles.js (color functions)
-└── lib/permissions.js (permission checks)
+├── lib/permissions.js (permission checks)
+└── lib/scheduler.js (reminders and events)
 
 lib/tasklist.js
 ├── utils/helper.js
