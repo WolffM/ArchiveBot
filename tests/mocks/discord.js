@@ -155,9 +155,32 @@ function createMockRole(overrides = {}) {
 }
 
 /**
+ * Creates a mock Discord scheduled event
+ */
+function createMockScheduledEvent(overrides = {}) {
+    const subscribers = createMockCollection();
+    return {
+        id: `event-${Date.now()}`,
+        name: 'Test Event',
+        description: 'Test event description',
+        scheduledStartTime: new Date(Date.now() + 3600000),
+        scheduledEndTime: null,
+        url: 'https://discord.com/events/guild-123/event-123',
+        fetchSubscribers: jest.fn().mockResolvedValue(subscribers),
+        delete: jest.fn().mockResolvedValue(undefined),
+        // Helper to add interested users for testing
+        _addSubscriber: function(userId) {
+            subscribers.set(userId, { user: { id: userId } });
+        },
+        ...overrides
+    };
+}
+
+/**
  * Creates a mock Discord guild
  */
 function createMockGuild(overrides = {}) {
+    const scheduledEventsCache = new Map();
     return {
         id: 'guild-123',
         name: 'Test Guild',
@@ -173,6 +196,29 @@ function createMockGuild(overrides = {}) {
         channels: {
             cache: new Map()
         },
+        scheduledEvents: {
+            cache: scheduledEventsCache,
+            create: jest.fn().mockImplementation((options) => {
+                const event = createMockScheduledEvent({
+                    id: `event-${Date.now()}`,
+                    name: options.name,
+                    description: options.description,
+                    scheduledStartTime: options.scheduledStartTime,
+                    scheduledEndTime: options.scheduledEndTime,
+                    url: `https://discord.com/events/guild-123/event-${Date.now()}`
+                });
+                scheduledEventsCache.set(event.id, event);
+                return Promise.resolve(event);
+            }),
+            fetch: jest.fn().mockImplementation((eventId) => {
+                const event = scheduledEventsCache.get(eventId);
+                if (event) return Promise.resolve(event);
+                const error = new Error('Unknown Guild Scheduled Event');
+                error.code = 10070;
+                return Promise.reject(error);
+            }),
+            delete: jest.fn().mockResolvedValue(undefined)
+        },
         ...overrides
     };
 }
@@ -184,5 +230,6 @@ module.exports = {
     createMockChannel,
     createMockRole,
     createMockGuild,
-    createMockCollection
+    createMockCollection,
+    createMockScheduledEvent
 };
