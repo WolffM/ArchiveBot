@@ -396,23 +396,58 @@ function createCommandsList() {
             }
         },
         event: {
-            description: 'Add a scheduled event notification',
+            description: 'Create a Discord scheduled event',
             options: [
                 {
-                    name: 'at',
-                    description: 'When to trigger (e.g. "2h", "30m", "10:00", "2026-01-20 10:00")',
+                    name: 'name',
+                    description: 'The name of the event',
                     type: 3, // STRING type
                     required: true
                 },
                 {
-                    name: 'message',
-                    description: 'The event message',
+                    name: 'start',
+                    description: 'Start time (e.g. "2h", "10:00", "2026-01-20 10:00")',
                     type: 3, // STRING type
                     required: true
                 },
                 {
-                    name: 'recurring',
-                    description: 'Repeat pattern (e.g. 1d, 1w, 2w, 1m, 1y)',
+                    name: 'type',
+                    description: 'Where the event takes place',
+                    type: 3, // STRING type
+                    required: true,
+                    choices: [
+                        { name: 'Voice Channel', value: 'voice' },
+                        { name: 'Stage Channel', value: 'stage' },
+                        { name: 'External (outside Discord)', value: 'external' }
+                    ]
+                },
+                {
+                    name: 'channel',
+                    description: 'Voice/Stage channel for the event (required for voice/stage type)',
+                    type: 7, // CHANNEL type
+                    required: false
+                },
+                {
+                    name: 'location',
+                    description: 'Location for external events (required for external type)',
+                    type: 3, // STRING type
+                    required: false
+                },
+                {
+                    name: 'end',
+                    description: 'End time (required for external events)',
+                    type: 3, // STRING type
+                    required: false
+                },
+                {
+                    name: 'description',
+                    description: 'Event description',
+                    type: 3, // STRING type
+                    required: false
+                },
+                {
+                    name: 'image',
+                    description: 'Cover image URL for the event',
                     type: 3, // STRING type
                     required: false
                 }
