@@ -425,7 +425,8 @@ function createCommandsList() {
                     name: 'channel',
                     description: 'Voice/Stage channel for the event (required for voice/stage type)',
                     type: 7, // CHANNEL type
-                    required: false
+                    required: false,
+                    channel_types: [2, 13] // 2 = GUILD_VOICE, 13 = GUILD_STAGE_VOICE
                 },
                 {
                     name: 'location',
@@ -447,8 +448,8 @@ function createCommandsList() {
                 },
                 {
                     name: 'image',
-                    description: 'Cover image URL for the event',
-                    type: 3, // STRING type
+                    description: 'Cover image for the event',
+                    type: 11, // ATTACHMENT type
                     required: false
                 }
             ],
