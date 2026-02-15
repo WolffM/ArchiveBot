@@ -389,6 +389,16 @@ function createCommandsList() {
                     description: 'Repeat pattern (e.g. 1d, 1w, 2w, 1m, 1y)',
                     type: 3, // STRING type
                     required: false
+                },
+                {
+                    name: 'action',
+                    description: 'Auto-run action when reminder fires',
+                    type: 3, // STRING type
+                    required: false,
+                    choices: [
+                        { name: 'Pickleball Signup (Tue)', value: 'pickleball_signup' },
+                        { name: 'Pickleball Find (Wed)', value: 'pickleball_find' }
+                    ]
                 }
             ],
             execute: async (interaction) => {
