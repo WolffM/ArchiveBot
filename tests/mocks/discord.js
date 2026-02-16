@@ -50,6 +50,7 @@ function createMockMessage(overrides = {}) {
         id: `msg-${Date.now()}`,
         content: 'Test message content',
         createdTimestamp: Date.now(),
+        type: 0,
         author: {
             id: 'author-123',
             username: 'MessageAuthor',
@@ -60,6 +61,23 @@ function createMockMessage(overrides = {}) {
         },
         reference: null,
         attachments: new Map(),
+        embeds: [],
+        mentions: {
+            users: new Map(),
+            roles: new Map(),
+            everyone: false,
+            repliedUser: null
+        },
+        editedTimestamp: null,
+        flags: { bitfield: 0 },
+        pinned: false,
+        system: false,
+        webhookId: null,
+        applicationId: null,
+        interaction: null,
+        interactionMetadata: null,
+        position: null,
+        nonce: null,
         channel: createMockChannel(),
         ...overrides
     };
