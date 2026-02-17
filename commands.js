@@ -397,7 +397,9 @@ function createCommandsList() {
                     required: false,
                     choices: [
                         { name: 'Pickleball Signup (Tue)', value: 'pickleball_signup' },
-                        { name: 'Pickleball Find (Wed)', value: 'pickleball_find' }
+                        { name: 'Pickleball Find (Wed)', value: 'pickleball_find' },
+                        { name: 'Archive Server', value: 'archive_server' },
+                        { name: 'Archive Channel', value: 'archive_channel' }
                     ]
                 }
             ],
