@@ -329,6 +329,221 @@ describe('Scheduler Integration Tests', () => {
         });
     });
 
+    describe('Date-only and slash-format parsing', () => {
+        it('should parse M/D/YYYY format defaulting to noon', () => {
+            const result = scheduler.parseDateTime('3/5/2026');
+            expect(result).not.toBeNull();
+            expect(result.getFullYear()).toBe(2026);
+            expect(result.getMonth()).toBe(2); // March = 0-indexed
+            expect(result.getDate()).toBe(5);
+            expect(result.getHours()).toBe(12);
+            expect(result.getMinutes()).toBe(0);
+        });
+
+        it('should parse MM/DD/YYYY format', () => {
+            const result = scheduler.parseDateTime('12/25/2026');
+            expect(result).not.toBeNull();
+            expect(result.getFullYear()).toBe(2026);
+            expect(result.getMonth()).toBe(11);
+            expect(result.getDate()).toBe(25);
+            expect(result.getHours()).toBe(12);
+        });
+
+        it('should parse M/D/YYYY with 12h time', () => {
+            const result = scheduler.parseDateTime('3/5/2026 4pm');
+            expect(result).not.toBeNull();
+            expect(result.getFullYear()).toBe(2026);
+            expect(result.getMonth()).toBe(2);
+            expect(result.getDate()).toBe(5);
+            expect(result.getHours()).toBe(16);
+            expect(result.getMinutes()).toBe(0);
+        });
+
+        it('should parse M/D/YYYY with 24h time', () => {
+            const result = scheduler.parseDateTime('3/5/2026 14:30');
+            expect(result).not.toBeNull();
+            expect(result.getHours()).toBe(14);
+            expect(result.getMinutes()).toBe(30);
+        });
+
+        it('should parse ISO date-only YYYY-MM-DD defaulting to noon', () => {
+            const result = scheduler.parseDateTime('2026-03-05');
+            expect(result).not.toBeNull();
+            expect(result.getFullYear()).toBe(2026);
+            expect(result.getMonth()).toBe(2);
+            expect(result.getDate()).toBe(5);
+            expect(result.getHours()).toBe(12);
+            expect(result.getMinutes()).toBe(0);
+        });
+
+        it('should reject invalid dates like 2/30', () => {
+            expect(scheduler.parseDateTime('2/30/2026')).toBeNull();
+        });
+
+        it('should reject invalid month', () => {
+            expect(scheduler.parseDateTime('13/5/2026')).toBeNull();
+        });
+    });
+
+    describe('Simplified event creation (no type)', () => {
+        it('should create an external event with defaults when type is omitted', async () => {
+            const interaction = createMockInteraction({
+                guild: mockGuild,
+                guildId: 'test-guild-integration',
+                channel: mockChannel,
+                user: { id: 'creator-user-123', username: 'EventCreator' },
+                options: {
+                    getString: jest.fn((name) => {
+                        const values = {
+                            'name': 'Timeborn 1.0 Release',
+                            'start': '3/5/2026'
+                        };
+                        return values[name] || null;
+                    }),
+                    getChannel: jest.fn(() => null),
+                    getAttachment: jest.fn(() => null)
+                }
+            });
+
+            await scheduler.handleEventCommand(interaction);
+
+            // Verify event was created via Discord API
+            expect(mockGuild.scheduledEvents.create).toHaveBeenCalled();
+            const createCall = mockGuild.scheduledEvents.create.mock.calls[0][0];
+
+            // Should default to external entity type
+            expect(createCall.entityType).toBe(3); // External
+
+            // Should have the event name as default location
+            expect(createCall.entityMetadata.location).toBe('Timeborn 1.0 Release');
+
+            // Should have start time at noon on 3/5/2026
+            expect(createCall.scheduledStartTime.getFullYear()).toBe(2026);
+            expect(createCall.scheduledStartTime.getMonth()).toBe(2);
+            expect(createCall.scheduledStartTime.getDate()).toBe(5);
+            expect(createCall.scheduledStartTime.getHours()).toBe(12);
+
+            // Should have default end time (start + 1 hour)
+            expect(createCall.scheduledEndTime).toBeDefined();
+            expect(createCall.scheduledEndTime.getTime())
+                .toBe(createCall.scheduledStartTime.getTime() + 3600000);
+
+            // Verify the scheduler item was persisted correctly
+            const data = scheduler.loadScheduledItems('test-guild-integration');
+            const eventItem = data.items.find(i => i.type === 'event');
+            expect(eventItem).toBeDefined();
+            expect(eventItem.eventName).toBe('Timeborn 1.0 Release');
+            expect(eventItem.scheduledEventId).toBeDefined();
+            expect(eventItem.active).toBe(true);
+            expect(eventItem.channelId).toBe(mockChannel.id);
+
+            // Reply should confirm creation
+            expect(interaction.editReply).toHaveBeenCalled();
+            const reply = interaction.editReply.mock.calls[0][0];
+            expect(reply).toContain('Event Created');
+            expect(reply).toContain('Timeborn 1.0 Release');
+        });
+
+        it('should fire the simplified event through the scheduler loop', async () => {
+            // Step 1: Create a simplified event (no type, no location, no end)
+            const interaction = createMockInteraction({
+                guild: mockGuild,
+                guildId: 'test-guild-integration',
+                channel: mockChannel,
+                user: { id: 'creator-user-123', username: 'EventCreator' },
+                options: {
+                    getString: jest.fn((name) => {
+                        const values = {
+                            'name': 'Game Night',
+                            'start': '5s' // Use relative time so it's near-future
+                        };
+                        return values[name] || null;
+                    }),
+                    getChannel: jest.fn(() => null),
+                    getAttachment: jest.fn(() => null)
+                }
+            });
+
+            await scheduler.handleEventCommand(interaction);
+
+            // Step 2: Verify the event was created and persisted
+            let data = scheduler.loadScheduledItems('test-guild-integration');
+            const eventItem = data.items.find(i => i.type === 'event');
+            expect(eventItem).toBeDefined();
+            expect(eventItem.eventName).toBe('Game Night');
+            expect(eventItem.active).toBe(true);
+
+            // Step 3: Move the trigger time to the past so it fires
+            eventItem.triggerAt = new Date(Date.now() - 1000).toISOString();
+            scheduler.saveScheduledItems('test-guild-integration', data);
+
+            // Step 4: Run the scheduler check
+            await scheduler.checkAllItems();
+
+            // Step 5: Verify the event message was sent to the channel
+            expect(mockChannel.send).toHaveBeenCalled();
+            const sendCall = mockChannel.send.mock.calls[0][0];
+            expect(sendCall.content).toBe('**Event:** Game Night');
+            expect(sendCall.content).not.toContain('undefined');
+
+            // Step 6: Verify the event was deactivated (one-time, no recurring)
+            data = scheduler.loadScheduledItems('test-guild-integration');
+            const firedItem = data.items.find(i => i.eventName === 'Game Night');
+            expect(firedItem.active).toBe(false);
+            expect(firedItem.lastTriggered).not.toBeNull();
+        });
+
+        it('should be removable via /remove after simplified creation', async () => {
+            // Create simplified event
+            const createInteraction = createMockInteraction({
+                guild: mockGuild,
+                guildId: 'test-guild-integration',
+                channel: mockChannel,
+                user: { id: 'creator-user-123', username: 'EventCreator' },
+                options: {
+                    getString: jest.fn((name) => {
+                        const values = {
+                            'name': 'Cleanup Test Event',
+                            'start': '1h'
+                        };
+                        return values[name] || null;
+                    }),
+                    getChannel: jest.fn(() => null),
+                    getAttachment: jest.fn(() => null)
+                }
+            });
+
+            await scheduler.handleEventCommand(createInteraction);
+
+            // Verify it exists
+            let data = scheduler.loadScheduledItems('test-guild-integration');
+            const eventItem = data.items.find(i => i.type === 'event');
+            expect(eventItem).toBeDefined();
+
+            // Remove it via /remove
+            const removeInteraction = createMockInteraction({
+                guild: mockGuild,
+                guildId: 'test-guild-integration',
+                channel: mockChannel,
+                user: { id: 'creator-user-123', username: 'EventCreator' },
+                options: {
+                    getString: jest.fn((name) => name === 'id' ? String(eventItem.id) : null),
+                    getInteger: jest.fn(() => null)
+                }
+            });
+
+            await scheduler.handleRemoveCommand(removeInteraction);
+
+            // Verify it's gone
+            data = scheduler.loadScheduledItems('test-guild-integration');
+            expect(data.items.filter(i => i.type === 'event').length).toBe(0);
+
+            // Verify the Discord scheduled event was deleted
+            const scheduledEvent = mockGuild.scheduledEvents.cache.get(eventItem.scheduledEventId);
+            expect(scheduledEvent.delete).toHaveBeenCalled();
+        });
+    });
+
     describe('Time parsing for seconds', () => {
         it('should parse seconds correctly', () => {
             const testCases = [

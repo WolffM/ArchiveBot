@@ -404,9 +404,9 @@ function createCommandsList() {
                 },
                 {
                     name: 'type',
-                    description: 'Where the event takes place',
+                    description: 'Where the event takes place (defaults to external)',
                     type: 3, // STRING type
-                    required: true,
+                    required: false,
                     choices: [
                         { name: 'Voice Channel', value: 'voice' },
                         { name: 'Stage Channel', value: 'stage' },
