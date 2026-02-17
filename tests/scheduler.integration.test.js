@@ -284,6 +284,51 @@ describe('Scheduler Integration Tests', () => {
         });
     });
 
+    describe('Event fireItem', () => {
+        it('should use eventName (not message) when firing an event item', async () => {
+            // Create an event via /event command
+            const interaction = createMockInteraction({
+                guild: mockGuild,
+                guildId: 'test-guild-integration',
+                channel: mockChannel,
+                user: { id: 'creator-user-123', username: 'EventCreator' },
+                options: {
+                    getString: jest.fn((name) => {
+                        const values = {
+                            'name': 'Basketball Pickup Game',
+                            'start': '10s',
+                            'type': 'voice',
+                        };
+                        return values[name] || null;
+                    }),
+                    getChannel: jest.fn(() => mockChannel),
+                    getAttachment: jest.fn(() => null)
+                }
+            });
+
+            await scheduler.handleEventCommand(interaction);
+
+            // Set the event trigger time to the past so it fires
+            const data = scheduler.loadScheduledItems('test-guild-integration');
+            const eventItem = data.items.find(i => i.type === 'event');
+            expect(eventItem).toBeDefined();
+            expect(eventItem.eventName).toBe('Basketball Pickup Game');
+            expect(eventItem.message).toBeUndefined();
+
+            eventItem.triggerAt = new Date(Date.now() - 1000).toISOString();
+            scheduler.saveScheduledItems('test-guild-integration', data);
+
+            // Trigger the scheduler check
+            await scheduler.checkAllItems();
+
+            // Verify the sent message uses eventName, not "undefined"
+            expect(mockChannel.send).toHaveBeenCalled();
+            const sendCall = mockChannel.send.mock.calls[0][0];
+            expect(sendCall.content).toBe('**Event:** Basketball Pickup Game');
+            expect(sendCall.content).not.toContain('undefined');
+        });
+    });
+
     describe('Time parsing for seconds', () => {
         it('should parse seconds correctly', () => {
             const testCases = [
