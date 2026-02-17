@@ -505,14 +505,22 @@ archive,guild-1,channel-1,${futureTime}`;
             };
         });
 
+        // Realistic Discord snowflakes and timestamps for test fixtures
+        const MSG_ID_1 = '1210628963228192778';
+        const MSG_ID_2 = '1210628963228192779';
+        const AUTHOR_ID_A = '211716040005124097';
+        const AUTHOR_ID_B = '309508532712112130';
+        const TS_1 = 1708706837232;
+        const TS_2 = 1708706837500;
+
         test('inserts messages with correct author_id from authors file', async () => {
             const archiveData = [
-                { id: 'msg-1', createdTimestamp: 1000, content: 'Hello' },
-                { id: 'msg-2', createdTimestamp: 2000, content: 'World' }
+                { id: MSG_ID_1, createdTimestamp: TS_1, content: 'Hello' },
+                { id: MSG_ID_2, createdTimestamp: TS_2, content: 'World' }
             ];
             const authorsData = {
-                'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-1'] },
-                'user-B': { id: 'user-B', username: 'Bob', globalName: 'Bob', msgIds: ['msg-2'] }
+                'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_1] },
+                'user-B': { id: AUTHOR_ID_B, username: 'Bob', globalName: 'Bob', msgIds: [MSG_ID_2] }
             };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
@@ -533,14 +541,14 @@ archive,guild-1,channel-1,${futureTime}`;
 
             // db.run(sql, [params]) — params array is at index 1
             // Params order: id, createdTimestamp, content, author_id, guild_id, channel_id, channel_name, archive_file, metadata
-            expect(insertCalls[0][1][3]).toBe('user-A');
-            expect(insertCalls[1][1][3]).toBe('user-B');
+            expect(insertCalls[0][1][3]).toBe(AUTHOR_ID_A);
+            expect(insertCalls[1][1][3]).toBe(AUTHOR_ID_B);
         });
 
         test('correctly parses channel_id from folder names with underscores', async () => {
-            const archiveData = [{ id: 'msg-1', createdTimestamp: 1000, content: 'test' }];
+            const archiveData = [{ id: MSG_ID_1, createdTimestamp: TS_1, content: 'test' }];
             const authorsData = {
-                'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-1'] }
+                'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_1] }
             };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
@@ -563,8 +571,8 @@ archive,guild-1,channel-1,${futureTime}`;
 
         test('merges old-format fields into metadata JSON', async () => {
             const archiveData = [{
-                id: 'msg-old',
-                createdTimestamp: 1000,
+                id: MSG_ID_1,
+                createdTimestamp: TS_1,
                 content: 'old format',
                 position: 42,
                 embeds: { '0': { data: { type: 'video', title: 'test' } } },
@@ -572,7 +580,7 @@ archive,guild-1,channel-1,${futureTime}`;
                 nonce: '12345'
             }];
             const authorsData = {
-                'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-old'] }
+                'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_1] }
             };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
@@ -600,8 +608,8 @@ archive,guild-1,channel-1,${futureTime}`;
 
         test('uses metadata property directly for new-format archives', async () => {
             const archiveData = [{
-                id: 'msg-new',
-                createdTimestamp: 1000,
+                id: MSG_ID_1,
+                createdTimestamp: TS_1,
                 content: 'new format',
                 metadata: {
                     reactions: [{ emoji: { name: '👍', id: null, animated: false }, count: 1, users: ['u1'] }],
@@ -610,7 +618,7 @@ archive,guild-1,channel-1,${futureTime}`;
                 }
             }];
             const authorsData = {
-                'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-new'] }
+                'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_1] }
             };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
@@ -635,10 +643,10 @@ archive,guild-1,channel-1,${futureTime}`;
 
         test('skips messages without matching author', async () => {
             const archiveData = [
-                { id: 'msg-orphan', createdTimestamp: 1000, content: 'no author' }
+                { id: MSG_ID_1, createdTimestamp: TS_1, content: 'no author' }
             ];
             const authorsData = {
-                'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-other'] }
+                'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_2] }
             };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
@@ -659,10 +667,10 @@ archive,guild-1,channel-1,${futureTime}`;
 
         test('stores null metadata when message has no extra fields', async () => {
             const archiveData = [
-                { id: 'msg-bare', createdTimestamp: 1000, content: 'bare message' }
+                { id: MSG_ID_1, createdTimestamp: TS_1, content: 'bare message' }
             ];
             const authorsData = {
-                'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-bare'] }
+                'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_1] }
             };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
@@ -697,10 +705,10 @@ archive,guild-1,channel-1,${futureTime}`;
         });
 
         test('processes multiple archive files in one channel', async () => {
-            const archiveData1 = [{ id: 'msg-1', createdTimestamp: 1000, content: 'first' }];
-            const authorsData1 = { 'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-1'] } };
-            const archiveData2 = [{ id: 'msg-2', createdTimestamp: 2000, content: 'second' }];
-            const authorsData2 = { 'user-A': { id: 'user-A', username: 'Alice', globalName: 'Alice', msgIds: ['msg-2'] } };
+            const archiveData1 = [{ id: MSG_ID_1, createdTimestamp: TS_1, content: 'first' }];
+            const authorsData1 = { 'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_1] } };
+            const archiveData2 = [{ id: MSG_ID_2, createdTimestamp: TS_2, content: 'second' }];
+            const authorsData2 = { 'user-A': { id: AUTHOR_ID_A, username: 'Alice', globalName: 'Alice', msgIds: [MSG_ID_2] } };
 
             fs.readdirSync.mockReturnValue(['archive_1000.json', 'archive_2000.json']);
             fs.existsSync.mockReturnValue(true);
@@ -720,16 +728,41 @@ archive,guild-1,channel-1,${futureTime}`;
             expect(insertCalls).toHaveLength(2);
         });
 
-        test('rolls back transaction on error', async () => {
+        test('gracefully skips files with read errors', async () => {
             fs.readdirSync.mockReturnValue(['archive_1000.json']);
             fs.existsSync.mockReturnValue(true);
             fs.readFileSync.mockImplementation(() => {
                 throw new Error('Read error');
             });
 
+            const result = await archive.processNewArchiveFiles(mockDb, 'guild-1', '/path/to/general_12345');
+            expect(result).toEqual({ inserted: 0, skipped: 0, invalid: 0 });
+
+            // Should still commit (no rollback) since file errors are per-file
+            const commitCalls = mockDb.run.mock.calls.filter(c => c[0] === 'COMMIT');
+            expect(commitCalls).toHaveLength(1);
+        });
+
+        test('rolls back transaction on unexpected DB error', async () => {
+            fs.readdirSync.mockReturnValue(['archive_1000.json']);
+            fs.existsSync.mockReturnValue(true);
+            fs.readFileSync.mockImplementation((filePath) => {
+                if (filePath.includes('archive_1000')) return JSON.stringify([
+                    { id: MSG_ID_1, createdTimestamp: TS_1, content: 'test' }
+                ]);
+                if (filePath.includes('authors_1000')) return JSON.stringify({
+                    'user-1': { id: AUTHOR_ID_A, username: 'Test', msgIds: [MSG_ID_1] }
+                });
+                return '';
+            });
+            mockDb.run.mockImplementation((sql) => {
+                if (sql.includes('INSERT')) throw new Error('DB write error');
+                return Promise.resolve();
+            });
+
             await expect(
                 archive.processNewArchiveFiles(mockDb, 'guild-1', '/path/to/general_12345')
-            ).rejects.toThrow('Read error');
+            ).rejects.toThrow('DB write error');
 
             const rollbackCalls = mockDb.run.mock.calls.filter(c => c[0] === 'ROLLBACK');
             expect(rollbackCalls).toHaveLength(1);
