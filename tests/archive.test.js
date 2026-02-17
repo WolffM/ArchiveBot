@@ -405,7 +405,15 @@ describe('archive.js', () => {
     // ========================================================
 
     describe('getLastArchiveTime', () => {
-        test('returns 0 when no log file exists', async () => {
+        const { open } = require('sqlite');
+
+        function mockDb(row) {
+            const db = { get: jest.fn().mockResolvedValue(row), close: jest.fn().mockResolvedValue() };
+            open.mockResolvedValue(db);
+            return db;
+        }
+
+        test('returns 0 when no database exists', async () => {
             fs.existsSync.mockReturnValue(false);
 
             const result = await archive.getLastArchiveTime('guild-1', 'channel-1');
@@ -413,53 +421,48 @@ describe('archive.js', () => {
             expect(result).toBe(0);
         });
 
-        test('returns most recent timestamp for channel', async () => {
-            const logContent = `Task,GuildId,ChannelID,Timestamp
-archive,guild-1,channel-1,1000000
-archive,guild-1,channel-1,2000000
-archive,guild-1,channel-2,3000000`;
-
+        test('returns max timestamp from database for channel', async () => {
             fs.existsSync.mockReturnValue(true);
-            fs.readFileSync.mockReturnValue(logContent);
+            const db = mockDb({ maxTs: 1708706837232 });
 
-            const result = await archive.getLastArchiveTime('guild-1', 'channel-1');
+            const result = await archive.getLastArchiveTime('guild-1', '1210628963228192778');
 
-            expect(result).toBe(2000000);
+            expect(result).toBe(1708706837232);
+            expect(db.get).toHaveBeenCalledWith(
+                'SELECT MAX(createdTimestamp) as maxTs FROM raw_archive WHERE channel_id = ? AND guild_id = ?',
+                ['1210628963228192778', 'guild-1']
+            );
+            expect(db.close).toHaveBeenCalled();
         });
 
-        test('ignores entries for other channels', async () => {
-            const logContent = `Task,GuildId,ChannelID,Timestamp
-archive,guild-1,channel-other,5000000
-archive,guild-1,channel-1,1000000`;
-
+        test('returns 0 when no rows for channel', async () => {
             fs.existsSync.mockReturnValue(true);
-            fs.readFileSync.mockReturnValue(logContent);
+            mockDb({ maxTs: null });
 
             const result = await archive.getLastArchiveTime('guild-1', 'channel-1');
 
-            expect(result).toBe(1000000);
+            expect(result).toBe(0);
         });
 
         test('resets future timestamps to 0', async () => {
-            const futureTime = Date.now() + 1000000000;
-            const logContent = `Task,GuildId,ChannelID,Timestamp
-archive,guild-1,channel-1,${futureTime}`;
-
             fs.existsSync.mockReturnValue(true);
-            fs.readFileSync.mockReturnValue(logContent);
+            const futureTime = Date.now() + 1000000000;
+            mockDb({ maxTs: futureTime });
 
             const result = await archive.getLastArchiveTime('guild-1', 'channel-1');
 
             expect(result).toBe(0);
         });
 
-        test('returns 0 for empty log file', async () => {
+        test('returns 0 and closes db on error', async () => {
             fs.existsSync.mockReturnValue(true);
-            fs.readFileSync.mockReturnValue('Task,GuildId,ChannelID,Timestamp\n');
+            const db = { get: jest.fn().mockRejectedValue(new Error('db error')), close: jest.fn().mockResolvedValue() };
+            open.mockResolvedValue(db);
 
             const result = await archive.getLastArchiveTime('guild-1', 'channel-1');
 
             expect(result).toBe(0);
+            expect(db.close).toHaveBeenCalled();
         });
     });
 

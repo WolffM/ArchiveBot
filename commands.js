@@ -72,32 +72,12 @@ function createCommandsList() {
                     await interaction.deferReply();
                     const attachments = interaction.options.getBoolean('attachments') ?? true;
                     const messages = interaction.options.getBoolean('messages') ?? true;
-                    
-                    await archive.initializeDatabaseIfNeeded(interaction.guildId);
-                    
-                    let successCount = 0;
-                    let errorCount = 0;
-                    
-                    for (const channel of interaction.guild.channels.cache.values()) {
-                        if (channel.type === 0) { // Text channel
-                            try {
-                                const archivePath = await archive.archiveChannel(channel, {
-                                    saveMessages: messages,
-                                    saveAttachments: attachments
-                                });
-                                if (archivePath) successCount++;
-                            } catch (error) {
-                                console.error(`Error archiving channel ${channel.name}:`, error);
-                                errorCount++;
-                            }
-                        }
-                    }
-                    
-                    await interaction.editReply(
-                        `Server archive complete!\n` +
-                        `Successfully archived: ${successCount} channels\n` +
-                        `Failed to archive: ${errorCount} channels`
-                    );
+
+                    await interaction.editReply('Starting server archive...');
+                    await archive.archiveServer(interaction.guild, interaction.channel, {
+                        saveMessages: messages,
+                        saveAttachments: attachments
+                    });
                 } catch (error) {
                     console.error('Error in archiveserver command:', error);
                     await interaction.editReply('An error occurred while archiving the server.');
