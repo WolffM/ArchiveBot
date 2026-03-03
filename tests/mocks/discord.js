@@ -115,6 +115,14 @@ function createMockCollection(entries = []) {
         }
         return result;
     };
+    map.first = function() {
+        return this.values().next().value;
+    };
+    map.last = function() {
+        let last;
+        for (const value of this.values()) last = value;
+        return last;
+    };
     return map;
 }
 
@@ -195,6 +203,45 @@ function createMockScheduledEvent(overrides = {}) {
 }
 
 /**
+ * Creates a mock forum channel (type 15 / GuildForum)
+ */
+function createMockForumChannel(overrides = {}) {
+    return {
+        id: `forum-${Date.now()}`,
+        name: 'test-forum',
+        type: 15,
+        threads: {
+            fetchActive: jest.fn().mockResolvedValue({
+                threads: createMockCollection()
+            }),
+            fetchArchived: jest.fn().mockResolvedValue({
+                threads: createMockCollection(),
+                hasMore: false
+            })
+        },
+        ...overrides
+    };
+}
+
+/**
+ * Creates a mock forum thread/post (type 11 / PublicThread)
+ */
+function createMockThread(overrides = {}) {
+    return {
+        id: `thread-${Date.now()}`,
+        name: 'test-post',
+        type: 11,
+        guild: { id: 'guild-123' },
+        messages: {
+            fetch: jest.fn().mockResolvedValue(new Map()),
+            cache: new Map()
+        },
+        archivedAt: new Date(),
+        ...overrides
+    };
+}
+
+/**
  * Creates a mock Discord guild
  */
 function createMockGuild(overrides = {}) {
@@ -212,7 +259,7 @@ function createMockGuild(overrides = {}) {
             fetch: jest.fn().mockResolvedValue(createMockMember())
         },
         channels: {
-            cache: new Map()
+            cache: createMockCollection()
         },
         scheduledEvents: {
             cache: scheduledEventsCache,
@@ -249,5 +296,7 @@ module.exports = {
     createMockRole,
     createMockGuild,
     createMockCollection,
-    createMockScheduledEvent
+    createMockScheduledEvent,
+    createMockForumChannel,
+    createMockThread
 };

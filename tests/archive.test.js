@@ -32,7 +32,7 @@ jest.mock('../utils/helper', () => ({
 }));
 
 const fs = require('fs');
-const { createMockMessage, createMockCollection } = require('./mocks/discord');
+const { createMockMessage, createMockCollection, createMockForumChannel, createMockThread } = require('./mocks/discord');
 const archive = require('../lib/archive');
 
 describe('archive.js', () => {
@@ -897,6 +897,189 @@ describe('archive.js', () => {
             // Good reaction should still be captured
             expect(messages[0].reactions).toHaveLength(1);
             expect(messages[0].reactions[0].emoji.name).toBe('👍');
+        });
+    });
+
+    // ========================================================
+    // fetchForumThreads
+    // ========================================================
+
+    describe('fetchForumThreads', () => {
+        function buildGuildWithForums(forumChannels, textChannels = []) {
+            const entries = [
+                ...forumChannels.map(f => [f.id, f]),
+                ...textChannels.map(c => [c.id, c])
+            ];
+            return {
+                id: 'guild-123',
+                channels: { cache: createMockCollection(entries) }
+            };
+        }
+
+        test('returns threads from forum channels', async () => {
+            const thread1 = createMockThread({ id: 'thread-1', name: 'post-one' });
+            const thread2 = createMockThread({ id: 'thread-2', name: 'post-two' });
+
+            const forum = createMockForumChannel({
+                id: 'forum-1',
+                name: 'more-channels',
+                threads: {
+                    fetchActive: jest.fn().mockResolvedValue({
+                        threads: createMockCollection([['thread-1', thread1]])
+                    }),
+                    fetchArchived: jest.fn().mockResolvedValue({
+                        threads: createMockCollection([['thread-2', thread2]]),
+                        hasMore: false
+                    })
+                }
+            });
+
+            const guild = buildGuildWithForums([forum]);
+            const results = await archive.fetchForumThreads(guild);
+
+            expect(results).toHaveLength(1);
+            expect(results[0].forum).toBe(forum);
+            expect(results[0].threads).toHaveLength(2);
+            expect(results[0].threads[0]).toBe(thread1);
+            expect(results[0].threads[1]).toBe(thread2);
+        });
+
+        test('paginates through archived threads when hasMore is true', async () => {
+            const thread1 = createMockThread({ id: 'thread-1', archivedAt: new Date('2026-01-01') });
+            const thread2 = createMockThread({ id: 'thread-2', archivedAt: new Date('2025-12-01') });
+
+            const forum = createMockForumChannel({
+                id: 'forum-1',
+                name: 'test-forum',
+                threads: {
+                    fetchActive: jest.fn().mockResolvedValue({
+                        threads: createMockCollection()
+                    }),
+                    fetchArchived: jest.fn()
+                        .mockResolvedValueOnce({
+                            threads: createMockCollection([['thread-1', thread1]]),
+                            hasMore: true
+                        })
+                        .mockResolvedValueOnce({
+                            threads: createMockCollection([['thread-2', thread2]]),
+                            hasMore: false
+                        })
+                }
+            });
+
+            const guild = buildGuildWithForums([forum]);
+            const results = await archive.fetchForumThreads(guild);
+
+            expect(results[0].threads).toHaveLength(2);
+            expect(forum.threads.fetchArchived).toHaveBeenCalledTimes(2);
+            // Second call should use archivedAt from last thread of first batch
+            expect(forum.threads.fetchArchived).toHaveBeenLastCalledWith({
+                before: thread1.archivedAt,
+                limit: 100
+            });
+        });
+
+        test('skips forums with no threads', async () => {
+            const forum = createMockForumChannel({ id: 'forum-empty', name: 'empty-forum' });
+
+            const guild = buildGuildWithForums([forum]);
+            const results = await archive.fetchForumThreads(guild);
+
+            expect(results).toHaveLength(0);
+        });
+
+        test('handles fetchActive errors gracefully', async () => {
+            const thread1 = createMockThread({ id: 'thread-1' });
+
+            const forum = createMockForumChannel({
+                id: 'forum-1',
+                name: 'test-forum',
+                threads: {
+                    fetchActive: jest.fn().mockRejectedValue(new Error('API error')),
+                    fetchArchived: jest.fn().mockResolvedValue({
+                        threads: createMockCollection([['thread-1', thread1]]),
+                        hasMore: false
+                    })
+                }
+            });
+
+            const guild = buildGuildWithForums([forum]);
+            const results = await archive.fetchForumThreads(guild);
+
+            // Should still return archived threads despite active fetch failing
+            expect(results).toHaveLength(1);
+            expect(results[0].threads).toHaveLength(1);
+        });
+
+        test('handles fetchArchived errors gracefully', async () => {
+            const thread1 = createMockThread({ id: 'thread-1' });
+
+            const forum = createMockForumChannel({
+                id: 'forum-1',
+                name: 'test-forum',
+                threads: {
+                    fetchActive: jest.fn().mockResolvedValue({
+                        threads: createMockCollection([['thread-1', thread1]])
+                    }),
+                    fetchArchived: jest.fn().mockRejectedValue(new Error('API error'))
+                }
+            });
+
+            const guild = buildGuildWithForums([forum]);
+            const results = await archive.fetchForumThreads(guild);
+
+            // Should still return active threads despite archived fetch failing
+            expect(results).toHaveLength(1);
+            expect(results[0].threads).toHaveLength(1);
+        });
+
+        test('ignores non-forum channels in cache', async () => {
+            const textChannel = { id: 'text-1', name: 'general', type: 0 };
+            const voiceChannel = { id: 'voice-1', name: 'voice', type: 2 };
+
+            const guild = buildGuildWithForums([], [textChannel, voiceChannel]);
+            const results = await archive.fetchForumThreads(guild);
+
+            expect(results).toHaveLength(0);
+        });
+
+        test('collects threads from multiple forum channels', async () => {
+            const thread1 = createMockThread({ id: 'thread-1' });
+            const thread2 = createMockThread({ id: 'thread-2' });
+
+            const forum1 = createMockForumChannel({
+                id: 'forum-1',
+                name: 'forum-one',
+                threads: {
+                    fetchActive: jest.fn().mockResolvedValue({
+                        threads: createMockCollection([['thread-1', thread1]])
+                    }),
+                    fetchArchived: jest.fn().mockResolvedValue({
+                        threads: createMockCollection(),
+                        hasMore: false
+                    })
+                }
+            });
+            const forum2 = createMockForumChannel({
+                id: 'forum-2',
+                name: 'forum-two',
+                threads: {
+                    fetchActive: jest.fn().mockResolvedValue({
+                        threads: createMockCollection([['thread-2', thread2]])
+                    }),
+                    fetchArchived: jest.fn().mockResolvedValue({
+                        threads: createMockCollection(),
+                        hasMore: false
+                    })
+                }
+            });
+
+            const guild = buildGuildWithForums([forum1, forum2]);
+            const results = await archive.fetchForumThreads(guild);
+
+            expect(results).toHaveLength(2);
+            expect(results[0].forum).toBe(forum1);
+            expect(results[1].forum).toBe(forum2);
         });
     });
 });
