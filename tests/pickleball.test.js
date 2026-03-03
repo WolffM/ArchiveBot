@@ -30,6 +30,7 @@ jest.mock('discord.js', () => ({
 // Set env vars before requiring module
 process.env.SCRAPE_API_URL = 'http://localhost:8000';
 process.env.SCRAPE_API_KEY = 'test-key';
+process.env.SCRAPE_SERVICE_KEY = 'test-service-key';
 
 const pickleball = require('../lib/pickleball');
 const api = axios._instance;
@@ -76,9 +77,13 @@ describe('pickleball', () => {
 
         it('should call runFindAction for pickleball_find', async () => {
             api.post.mockResolvedValueOnce({
+                data: { success: true }
+            });
+            api.get.mockResolvedValueOnce({
                 data: {
                     success: true,
                     data: {
+                        status: 'completed',
                         event_title: 'Open Play - Intermediate',
                         matched_time: '7:00pm - 9:00pm',
                         spots_left: 6,
@@ -170,11 +175,15 @@ describe('pickleball', () => {
     });
 
     describe('runFindAction', () => {
-        it('should send message with signup button on success', async () => {
+        it('should send progress message and edit with signup button on success', async () => {
             api.post.mockResolvedValueOnce({
+                data: { success: true }
+            });
+            api.get.mockResolvedValueOnce({
                 data: {
                     success: true,
                     data: {
+                        status: 'completed',
                         event_title: 'Open Play - Intermediate',
                         matched_time: '7:00pm - 9:00pm',
                         spots_left: 6,
@@ -186,7 +195,10 @@ describe('pickleball', () => {
             const channel = createMockChannel();
             await pickleball.runFindAction(channel);
 
-            expect(channel.send).toHaveBeenCalledWith(expect.objectContaining({
+            expect(channel.send).toHaveBeenCalledWith('Searching for pickleball event...');
+            expect(api.get).toHaveBeenCalledWith('/api/v1/pickleball/status');
+            const sentMsg = channel._sent[0];
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.objectContaining({
                 content: expect.stringContaining('Open Play - Intermediate'),
                 components: expect.arrayContaining([
                     expect.objectContaining({
@@ -205,10 +217,13 @@ describe('pickleball', () => {
 
         it('should include spots left and signup_opens_at when present', async () => {
             api.post.mockResolvedValueOnce({
+                data: { success: true }
+            });
+            api.get.mockResolvedValueOnce({
                 data: {
                     success: true,
                     data: {
-                        message: 'Event found — signup not yet open',
+                        status: 'completed',
                         event_title: 'Open Play - Intermediate',
                         matched_time: '7:00pm - 9:00pm',
                         spots_left: 8,
@@ -221,12 +236,32 @@ describe('pickleball', () => {
             const channel = createMockChannel();
             await pickleball.runFindAction(channel);
 
-            const callArg = channel.send.mock.calls[0][0];
-            expect(callArg.content).toContain('**Spots Left:** 8');
-            expect(callArg.content).toContain('Signup opens at:');
+            const sentMsg = channel._sent[0];
+            const editArg = sentMsg.edit.mock.calls[0][0];
+            expect(editArg.content).toContain('**Spots Left:** 8');
+            expect(editArg.content).toContain('Signup opens at:');
         });
 
-        it('should send error message when event not found', async () => {
+        it('should edit message with error when find fails', async () => {
+            api.post.mockResolvedValueOnce({
+                data: { success: true }
+            });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: { status: 'failed', error: 'Could not find event' }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runFindAction(channel);
+
+            const sentMsg = channel._sent[0];
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Find Failed'));
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Could not find event'));
+        });
+
+        it('should send error message when API returns failure immediately', async () => {
             api.post.mockResolvedValueOnce({
                 data: { success: false, error: { message: 'Could not find event' } }
             });
