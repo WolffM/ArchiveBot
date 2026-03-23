@@ -172,6 +172,42 @@ describe('pickleball', () => {
             expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Signup Failed'));
             expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Event not found'));
         });
+
+        it('should show already signed up message when already_signed_up is true', async () => {
+            api.post.mockResolvedValueOnce({
+                data: { success: true, data: { message: 'Signup started' } }
+            });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: { status: 'completed', already_signed_up: true, event_title: 'Open Play - Social / Low Intermediate', matched_time: '7:00pm - 9:00pm' }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runSignupAction(channel);
+
+            const sentMsg = channel._sent[0];
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Already Signed Up'));
+        });
+
+        it('should show sold out message when sold_out is true', async () => {
+            api.post.mockResolvedValueOnce({
+                data: { success: true, data: { message: 'Signup started' } }
+            });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: { status: 'failed', sold_out: true, error: 'event_sold_out' }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runSignupAction(channel);
+
+            const sentMsg = channel._sent[0];
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('sold out'));
+        });
     });
 
     describe('runFindAction', () => {
@@ -240,6 +276,54 @@ describe('pickleball', () => {
             const editArg = sentMsg.edit.mock.calls[0][0];
             expect(editArg.content).toContain('**Spots Left:** 8');
             expect(editArg.content).toContain('Signup opens at:');
+        });
+
+        it('should show sold out and no button when sold_out is true', async () => {
+            api.post.mockResolvedValueOnce({ data: { success: true } });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: {
+                        status: 'completed',
+                        sold_out: true,
+                        event_title: 'Open Play - Intermediate',
+                        matched_time: '7:00pm - 9:00pm',
+                        signup_url: 'https://example.com/signup'
+                    }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runFindAction(channel);
+
+            const sentMsg = channel._sent[0];
+            const editArg = sentMsg.edit.mock.calls[0][0];
+            expect(editArg.content).toContain('Sold Out');
+            expect(editArg.components).toBeUndefined();
+        });
+
+        it('should show already signed up and no button when already_signed_up is true', async () => {
+            api.post.mockResolvedValueOnce({ data: { success: true } });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: {
+                        status: 'completed',
+                        already_signed_up: true,
+                        event_title: 'Open Play - Intermediate',
+                        matched_time: '7:00pm - 9:00pm',
+                        signup_url: 'https://example.com/signup'
+                    }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runFindAction(channel);
+
+            const sentMsg = channel._sent[0];
+            const editArg = sentMsg.edit.mock.calls[0][0];
+            expect(editArg.content).toContain("already signed up");
+            expect(editArg.components).toBeUndefined();
         });
 
         it('should edit message with error when find fails', async () => {
