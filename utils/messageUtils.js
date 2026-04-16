@@ -2,6 +2,12 @@
  * Discord message utilities
  */
 
+const TASK_HEADER_PATTERNS = [
+    /\*\*[^*]*\bNew Tasks\b[^*]*\*\*/i,
+    /\*\*[^*]*\bActive Tasks\b[^*]*\*\*/i,
+    /\*\*[^*]*\bCompleted Tasks\b[^*]*\*\*/i
+];
+
 /**
  * Split long content into chunks that fit Discord's message limit
  * @param {string} content - Content to split
@@ -49,9 +55,7 @@ async function cleanupTasks(channel, tasksData) {
             if (typeof content !== 'string') return false;
             return (
                 content.includes("Your tasks:") ||
-                /\*\*.*New Tasks.*\*\*/i.test(content) ||
-                /\*\*.*Active Tasks.*\*\*/i.test(content) ||
-                /\*\*.*Completed Tasks.*\*\*/i.test(content)
+                TASK_HEADER_PATTERNS.some(pattern => pattern.test(content))
             );
         };
 

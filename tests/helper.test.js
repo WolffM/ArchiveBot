@@ -102,11 +102,16 @@ describe('helper.js', () => {
     });
 
     describe('cleanupTasks', () => {
-        test('deletes bot task list messages with emoji headers', async () => {
+        test.each([
+            '**🌟  New Tasks 🌟**\n```table```',
+            '**✏️ Active Tasks ✏️**\n```table```',
+            '**✅ Completed Tasks ✅**\n```table```',
+            'Your tasks:\n```table```'
+        ])('deletes bot task list messages for supported task headers: %s', async (headerContent) => {
             const taskMessage = {
                 id: 'task-msg-1',
                 author: { bot: true },
-                content: '**🌟  New Tasks 🌟**\n```table```'
+                content: headerContent
             };
             const messages = createMockCollection([
                 [taskMessage.id, taskMessage],
@@ -125,6 +130,7 @@ describe('helper.js', () => {
             expect(filterOld).toBe(true);
             expect(deletedMessages.size).toBe(1);
             expect(deletedMessages.has('task-msg-1')).toBe(true);
+            expect(deletedMessages.has('non-task')).toBe(false);
         });
     });
 
