@@ -2,6 +2,12 @@
  * Discord message utilities
  */
 
+const TASK_HEADER_PATTERNS = [
+    /\*\*[^*]*\bNew Tasks\b[^*]*\*\*/i,
+    /\*\*[^*]*\bActive Tasks\b[^*]*\*\*/i,
+    /\*\*[^*]*\bCompleted Tasks\b[^*]*\*\*/i
+];
+
 /**
  * Split long content into chunks that fit Discord's message limit
  * @param {string} content - Content to split
@@ -45,13 +51,16 @@ function truncateString(str, maxLength) {
 async function cleanupTasks(channel, tasksData) {
     try {
         const messages = await channel.messages.fetch({ limit: 100 });
+        const isTaskHeaderMessage = (content) => {
+            if (typeof content !== 'string') return false;
+            return (
+                content.includes("Your tasks:") ||
+                TASK_HEADER_PATTERNS.some(pattern => pattern.test(content))
+            );
+        };
+
         const messagesToDelete = messages.filter(msg =>
-            msg.author.bot && (
-                msg.content.includes("Your tasks:") ||
-                msg.content.includes("**New Tasks**") ||
-                msg.content.includes("**Active Tasks**") ||
-                msg.content.includes("**Completed Tasks**")
-            )
+            msg.author.bot && isTaskHeaderMessage(msg.content)
         );
 
         if (messagesToDelete.size > 0) {
