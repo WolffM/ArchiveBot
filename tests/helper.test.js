@@ -245,6 +245,21 @@ describe('helper.js', () => {
     });
 
     describe('scrubEmptyFields', () => {
+        test('preserves task arrays instead of converting them to keyed objects', () => {
+            const tasks = [
+                { id: 1, name: 'Crimson kitty task' },
+                { id: 2, name: 'Second task', assigned: null }
+            ];
+
+            const result = helper.scrubEmptyFields(tasks);
+
+            expect(Array.isArray(result)).toBe(true);
+            expect(result).toEqual([
+                { id: 1, name: 'Crimson kitty task' },
+                { id: 2, name: 'Second task' }
+            ]);
+        });
+
         test('removes null and undefined values', () => {
             const obj = { a: 1, b: null, c: undefined, d: 'hello' };
             const result = helper.scrubEmptyFields(obj);
