@@ -45,13 +45,18 @@ function truncateString(str, maxLength) {
 async function cleanupTasks(channel, tasksData) {
     try {
         const messages = await channel.messages.fetch({ limit: 100 });
+        const isTaskHeaderMessage = (content) => {
+            if (typeof content !== 'string') return false;
+            return (
+                content.includes("Your tasks:") ||
+                /\*\*.*New Tasks.*\*\*/i.test(content) ||
+                /\*\*.*Active Tasks.*\*\*/i.test(content) ||
+                /\*\*.*Completed Tasks.*\*\*/i.test(content)
+            );
+        };
+
         const messagesToDelete = messages.filter(msg =>
-            msg.author.bot && (
-                msg.content.includes("Your tasks:") ||
-                msg.content.includes("**New Tasks**") ||
-                msg.content.includes("**Active Tasks**") ||
-                msg.content.includes("**Completed Tasks**")
-            )
+            msg.author.bot && isTaskHeaderMessage(msg.content)
         );
 
         if (messagesToDelete.size > 0) {

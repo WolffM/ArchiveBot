@@ -12,6 +12,7 @@ jest.mock('../utils/users', () => ({
 
 const fs = require('fs');
 const { createMockTasksData } = require('./mocks/filesystem');
+const { createMockCollection } = require('./mocks/discord');
 
 // Import helper functions
 const helper = require('../utils/helper');
@@ -97,6 +98,33 @@ describe('helper.js', () => {
             // This could be considered a bug, but we test actual behavior
             expect(result).toHaveLength(1);
             expect(result[0]).toBe('\n');
+        });
+    });
+
+    describe('cleanupTasks', () => {
+        test('deletes bot task list messages with emoji headers', async () => {
+            const taskMessage = {
+                id: 'task-msg-1',
+                author: { bot: true },
+                content: '**🌟  New Tasks 🌟**\n```table```'
+            };
+            const messages = createMockCollection([
+                [taskMessage.id, taskMessage],
+                ['non-task', { id: 'non-task', author: { bot: true }, content: 'normal bot message' }]
+            ]);
+
+            const channel = {
+                messages: { fetch: jest.fn().mockResolvedValue(messages) },
+                bulkDelete: jest.fn().mockResolvedValue(undefined)
+            };
+
+            await helper.cleanupTasks(channel);
+
+            expect(channel.bulkDelete).toHaveBeenCalledTimes(1);
+            const [deletedMessages, filterOld] = channel.bulkDelete.mock.calls[0];
+            expect(filterOld).toBe(true);
+            expect(deletedMessages.size).toBe(1);
+            expect(deletedMessages.has('task-msg-1')).toBe(true);
         });
     });
 
