@@ -4,7 +4,7 @@
 
 Discord bot (discord.js v14, Node.js, SQLite). Features: message archiving, task management, color roles, permissions, reminders/events, pickleball automation.
 
-PM2 service on hadoku.me. Deployed via push to `main` → GitHub Actions → repository dispatch to `WolffM/hadoku_site` → PM2 restart.
+Local PM2 service (runs on the developer's Windows/WSL machine, not a remote server). Deployed via push to `main` → GitHub Actions `repository_dispatch` to `WolffM/hadoku_site` → self-hosted runner on the same machine → `git pull` + `pm2 restart archive-bot`. The `hadoku.me` domain is a Cloudflare tunnel back to localhost.
 
 ## Command definitions
 
@@ -27,7 +27,7 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 ## External dependencies
 
 - Discord API via discord.js
-- `hadoku.me/scraper` — pickleball automation (`lib/pickleball.js`, env: `SCRAPE_API_URL`)
+- `scraper.hadoku.me` — pickleball automation (`lib/pickleball.js`, env: `SCRAPE_API_URL`)
 - Deploy: `.github/workflows/deploy.yml` → repository dispatch to `WolffM/hadoku_site`
 
 ## Environment variables
@@ -37,7 +37,7 @@ Required in `.env`:
 - `CLIENT_ID` — application ID
 
 Optional:
-- `SCRAPE_API_URL` — defaults to `https://hadoku.me/scraper`
+- `SCRAPE_API_URL` — defaults to `https://scraper.hadoku.me`
 
 GitHub secret: `HADOKU_SITE_TOKEN` (deploy workflow)
 
