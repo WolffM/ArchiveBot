@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits } = 
 const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
+const { startWebhookServer } = require('./lib/webhookServer');
 const { createLogger } = require('./utils/logger');
 require('dotenv').config();
 
@@ -193,6 +194,11 @@ client.once('ready', async () => {
     }
 
     log.success('initialize', { message: 'All commands registered' });
+
+    // Start the inbound webhook server for cross-service notifications
+    // (hadoku-scrape → ArchiveBot → Discord). Silently skipped if the
+    // PICKLEBALL_WEBHOOK_SECRET / PICKLEBALL_CHANNEL_ID env vars are absent.
+    global.__webhookServer = startWebhookServer({ discordClient: client });
 });
 
 client.on('interactionCreate', async interaction => {
@@ -368,6 +374,9 @@ module.exports = {
 async function shutdown(signal) {
     log.info('shutdown', { signal });
     try {
+        if (global.__webhookServer) {
+            await new Promise((resolve) => global.__webhookServer.close(resolve));
+        }
         scheduler.stopScheduler();
         client.destroy();
         log.success('shutdown', { message: 'Discord client disconnected' });
