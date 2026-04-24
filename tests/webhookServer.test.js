@@ -137,6 +137,37 @@ describe('formatWaitlistMessage', () => {
         });
         expect(msg).toMatch(/Pickleball update.*Open Play - Advanced/);
     });
+
+    test('signed_up_direct is a signup message (not waitlist)', () => {
+        const msg = formatWaitlistMessage({
+            kind: 'signed_up_direct',
+            event_title: 'Open Play - Advanced',
+            event_url: 'https://example.com/events/abc',
+            matched_time: 'Sat, 4/25 | 7am-9am PDT',
+        });
+        expect(msg).toMatch(/^\*\*Signed up:\*\* Open Play - Advanced/);
+        expect(msg).not.toMatch(/waitlist/i);
+        expect(msg).toMatch(/Sat, 4\/25/);
+    });
+
+    test('already_signed_up_direct includes title and url', () => {
+        const msg = formatWaitlistMessage({
+            kind: 'already_signed_up_direct',
+            event_title: 'Open Play - Intermediate',
+            event_url: 'https://example.com/events/xyz',
+        });
+        expect(msg).toMatch(/Already signed up.*Open Play - Intermediate/);
+    });
+
+    test('signup_failed_direct surfaces the error', () => {
+        const msg = formatWaitlistMessage({
+            kind: 'signup_failed_direct',
+            event_title: 'Open Play - Advanced',
+            error: 'signup_unverified',
+        });
+        expect(msg).toMatch(/Signup failed.*Open Play - Advanced/);
+        expect(msg).toMatch(/signup_unverified/);
+    });
 });
 
 describe('createHandler', () => {
