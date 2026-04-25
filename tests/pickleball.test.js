@@ -70,8 +70,9 @@ describe('pickleball', () => {
             expect(api.post).toHaveBeenCalledWith('/api/v1/pickleball/signup', expect.objectContaining({
                 event_day: 'Tue',
                 event_time: '7pm-9pm',
-                event_name: 'Open Play - Social / Low Intermediate',
-                location: 'Lynnwood'
+                event_name: 'Open Play - Intermediate',
+                location: 'Lynnwood',
+                include_waitlist: true
             }));
         });
 
@@ -207,6 +208,58 @@ describe('pickleball', () => {
 
             const sentMsg = channel._sent[0];
             expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('sold out'));
+        });
+
+        it('should show joined waitlist message when waitlisted is true', async () => {
+            api.post.mockResolvedValueOnce({
+                data: { success: true, data: { message: 'Signup started' } }
+            });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: {
+                        status: 'completed',
+                        sold_out: true,
+                        waitlisted: true,
+                        already_waitlisted: false,
+                        event_title: 'Open Play - Intermediate',
+                        matched_time: '7:00pm - 9:00pm',
+                        event_url: 'https://example.com/event'
+                    }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runSignupAction(channel);
+
+            const sentMsg = channel._sent[0];
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Joined Waitlist'));
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Open Play - Intermediate'));
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('auto-sign you up'));
+        });
+
+        it('should show already-on-waitlist message when already_waitlisted is true', async () => {
+            api.post.mockResolvedValueOnce({
+                data: { success: true, data: { message: 'Signup started' } }
+            });
+            api.get.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    data: {
+                        status: 'completed',
+                        sold_out: true,
+                        waitlisted: true,
+                        already_waitlisted: true,
+                        event_title: 'Open Play - Intermediate'
+                    }
+                }
+            });
+
+            const channel = createMockChannel();
+            await pickleball.runSignupAction(channel);
+
+            const sentMsg = channel._sent[0];
+            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Already on Waitlist'));
         });
     });
 
