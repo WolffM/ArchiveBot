@@ -130,6 +130,18 @@ describe('formatWaitlistMessage', () => {
         expect(msg).toMatch(/network_timeout/);
     });
 
+    test('trigger_blocked_non_open_play warns auto-signup was refused', () => {
+        const msg = formatWaitlistMessage({
+            kind: 'trigger_blocked_non_open_play',
+            event_title: 'Intermediate Three and Me with Coach Nick',
+            event_url: 'https://example.com/events/coach',
+        });
+        expect(msg).toMatch(/Auto-signup blocked.*Coach Nick/);
+        expect(msg).toMatch(/reserved for Open Play/);
+        expect(msg).toMatch(/manually/);
+        expect(msg).toMatch(/https:\/\/example\.com\/events\/coach/);
+    });
+
     test('unknown kind falls back to generic format', () => {
         const msg = formatWaitlistMessage({
             kind: 'something_weird',
