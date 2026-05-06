@@ -417,6 +417,31 @@ describe('pickleball', () => {
 
             expect(channel.send).toHaveBeenCalledWith(expect.stringContaining('ECONNREFUSED'));
         });
+
+        it('should extract message from hadoku-shape error response (no [object Object])', async () => {
+            // Scrape API returns errors as { success:false, error:{code, message} }.
+            // Earlier code read .data.error directly (a dict) and template-string-
+            // interpolated it, producing 'Pickleball find error: [object Object]'.
+            const apiErr = new Error('Request failed with status code 500');
+            apiErr.response = {
+                status: 500,
+                data: {
+                    success: false,
+                    error: {
+                        code: 'INTERNAL_ERROR',
+                        message: 'database connection lost',
+                    },
+                },
+            };
+            api.post.mockRejectedValueOnce(apiErr);
+
+            const channel = createMockChannel();
+            await pickleball.runFindAction(channel);
+
+            const sent = channel.send.mock.calls.map(c => c[0]).join('\n');
+            expect(sent).toContain('database connection lost');
+            expect(sent).not.toContain('[object Object]');
+        });
     });
 
     describe('pollStatus', () => {
