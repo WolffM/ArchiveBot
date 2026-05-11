@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hadoku-builder]
     steps:
       - name: Trigger hadoku_site to redeploy
         env:
