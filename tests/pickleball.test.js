@@ -29,7 +29,6 @@ jest.mock('discord.js', () => ({
 
 // Set env vars before requiring module
 process.env.SCRAPE_API_URL = 'http://localhost:8000';
-process.env.SCRAPE_API_KEY = 'test-key';
 process.env.SCRAPE_SERVICE_KEY = 'test-service-key';
 
 const pickleball = require('../lib/pickleball');
