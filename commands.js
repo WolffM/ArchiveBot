@@ -350,7 +350,7 @@ function createCommandsList() {
             }
         },
         reminder: {
-            description: 'Add a scheduled reminder (@everyone notification)',
+            description: 'Add a scheduled reminder',
             options: [
                 {
                     name: 'at',
