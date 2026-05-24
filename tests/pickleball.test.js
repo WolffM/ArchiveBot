@@ -59,9 +59,7 @@ describe('pickleball', () => {
             api.post.mockResolvedValueOnce({
                 data: { success: true, data: { message: 'Signup started', status: 'running' } }
             });
-            api.get.mockResolvedValueOnce({
-                data: { success: true, data: { status: 'completed', event_title: 'Test Event', matched_time: '7pm-9pm', spots_left: 4, event_url: 'https://example.com' } }
-            });
+            // runSignupAction is now fire-and-walk-away (no /status polling).
 
             const channel = createMockChannel();
             await pickleball.executeAction('pickleball_signup', channel);
@@ -113,34 +111,28 @@ describe('pickleball', () => {
     });
 
     describe('runSignupAction', () => {
-        it('should send progress message and edit with result on success', async () => {
+        // Outcome messages (Signup Complete / Already Signed Up / Joined
+        // Waitlist / Signup Failed) are now produced by the scraper's
+        // archivebot webhook push, not by polling. See webhookServer.test.js
+        // for the formatter coverage. runSignupAction only kicks off the
+        // background job and posts a "started" placeholder; the webhook
+        // delivers the final message when the scraper finishes.
+        it('should post a "started" message and not poll status', async () => {
             api.post.mockResolvedValueOnce({
                 data: { success: true, data: { message: 'Signup started', status: 'running' } }
-            });
-            api.get.mockResolvedValueOnce({
-                data: {
-                    success: true,
-                    data: {
-                        status: 'completed',
-                        event_title: 'Open Play - Social / Low Intermediate',
-                        matched_time: '7:00pm - 9:00pm',
-                        spots_left: 4,
-                        event_url: 'https://example.com/event'
-                    }
-                }
             });
 
             const channel = createMockChannel();
             await pickleball.runSignupAction(channel);
 
-            // Should have sent initial "started" message
-            expect(channel.send).toHaveBeenCalledWith('Pickleball signup started...');
-            // Should have polled status
-            expect(api.get).toHaveBeenCalledWith('/api/v1/pickleball/status');
-            // Should have edited with result
-            const sentMsg = channel._sent[0];
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Signup Complete'));
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Open Play - Social / Low Intermediate'));
+            expect(api.post).toHaveBeenCalledWith(
+                '/api/v1/pickleball/signup',
+                expect.objectContaining({ event_name: 'Open Play - Intermediate' })
+            );
+            expect(api.get).not.toHaveBeenCalled();
+            expect(channel.send).toHaveBeenCalledWith(
+                expect.stringContaining('signup started')
+            );
         });
 
         it('should report failure when API returns error', async () => {
@@ -152,113 +144,19 @@ describe('pickleball', () => {
             await pickleball.runSignupAction(channel);
 
             expect(channel.send).toHaveBeenCalledWith(expect.stringContaining('Failed to start'));
+            expect(api.get).not.toHaveBeenCalled();
         });
 
-        it('should edit message with error when signup fails', async () => {
-            api.post.mockResolvedValueOnce({
-                data: { success: true, data: { message: 'Signup started' } }
-            });
-            api.get.mockResolvedValueOnce({
-                data: {
-                    success: true,
-                    data: { status: 'failed', error: 'Event not found' }
-                }
-            });
+        it('should report transport error without polling status', async () => {
+            api.post.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
             const channel = createMockChannel();
             await pickleball.runSignupAction(channel);
 
-            const sentMsg = channel._sent[0];
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Signup Failed'));
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Event not found'));
-        });
-
-        it('should show already signed up message when already_signed_up is true', async () => {
-            api.post.mockResolvedValueOnce({
-                data: { success: true, data: { message: 'Signup started' } }
-            });
-            api.get.mockResolvedValueOnce({
-                data: {
-                    success: true,
-                    data: { status: 'completed', already_signed_up: true, event_title: 'Open Play - Social / Low Intermediate', matched_time: '7:00pm - 9:00pm' }
-                }
-            });
-
-            const channel = createMockChannel();
-            await pickleball.runSignupAction(channel);
-
-            const sentMsg = channel._sent[0];
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Already Signed Up'));
-        });
-
-        it('should show sold out message when sold_out is true', async () => {
-            api.post.mockResolvedValueOnce({
-                data: { success: true, data: { message: 'Signup started' } }
-            });
-            api.get.mockResolvedValueOnce({
-                data: {
-                    success: true,
-                    data: { status: 'failed', sold_out: true, error: 'event_sold_out' }
-                }
-            });
-
-            const channel = createMockChannel();
-            await pickleball.runSignupAction(channel);
-
-            const sentMsg = channel._sent[0];
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('sold out'));
-        });
-
-        it('should show joined waitlist message when waitlisted is true', async () => {
-            api.post.mockResolvedValueOnce({
-                data: { success: true, data: { message: 'Signup started' } }
-            });
-            api.get.mockResolvedValueOnce({
-                data: {
-                    success: true,
-                    data: {
-                        status: 'completed',
-                        sold_out: true,
-                        waitlisted: true,
-                        already_waitlisted: false,
-                        event_title: 'Open Play - Intermediate',
-                        matched_time: '7:00pm - 9:00pm',
-                        event_url: 'https://example.com/event'
-                    }
-                }
-            });
-
-            const channel = createMockChannel();
-            await pickleball.runSignupAction(channel);
-
-            const sentMsg = channel._sent[0];
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Joined Waitlist'));
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Open Play - Intermediate'));
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('auto-sign you up'));
-        });
-
-        it('should show already-on-waitlist message when already_waitlisted is true', async () => {
-            api.post.mockResolvedValueOnce({
-                data: { success: true, data: { message: 'Signup started' } }
-            });
-            api.get.mockResolvedValueOnce({
-                data: {
-                    success: true,
-                    data: {
-                        status: 'completed',
-                        sold_out: true,
-                        waitlisted: true,
-                        already_waitlisted: true,
-                        event_title: 'Open Play - Intermediate'
-                    }
-                }
-            });
-
-            const channel = createMockChannel();
-            await pickleball.runSignupAction(channel);
-
-            const sentMsg = channel._sent[0];
-            expect(sentMsg.edit).toHaveBeenCalledWith(expect.stringContaining('Already on Waitlist'));
+            expect(channel.send).toHaveBeenCalledWith(
+                expect.stringContaining('Pickleball signup error')
+            );
+            expect(api.get).not.toHaveBeenCalled();
         });
     });
 
