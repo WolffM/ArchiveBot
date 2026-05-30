@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const archive = require('./lib/archive');
 const tasklist = require('./lib/tasklist');
 const colorroles = require('./lib/colorroles');
@@ -46,7 +47,7 @@ function createCommandsList() {
                         interaction.reply;
                     await reply.call(interaction, {
                         content: 'An error occurred while archiving the channel.',
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     });
                 }
             },
@@ -105,7 +106,7 @@ function createCommandsList() {
                     if (!interaction.replied && !interaction.deferred) {
                         await interaction.reply({
                             content: `Error: ${error.message}`,
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         });
                     } else if (interaction.deferred) {
                         await interaction.editReply({
@@ -224,7 +225,7 @@ function createCommandsList() {
                 if (!hasAdminPerms) {
                     await interaction.reply({
                         content: "You don't have permission to use this command.",
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     });
                     return;
                 }
@@ -236,7 +237,7 @@ function createCommandsList() {
                 
                 // Set the permission
                 try {
-                    await interaction.deferReply({ ephemeral: true });
+                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                     
                     const result = await permissions.setPermission(
                         targetUser.id,
@@ -251,14 +252,14 @@ function createCommandsList() {
                     
                     await interaction.editReply({
                         content: message,
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     });
                     
                     // Signal that commands may need refresh (handled by index.js event listener)
                     if (result.needsRefresh) {
                         await interaction.followUp({
                             content: "Permission updated! Users may need to restart their Discord client to see command changes.",
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         });
                     }
                 } catch (error) {
@@ -269,12 +270,12 @@ function createCommandsList() {
                     if (interaction.deferred) {
                         await interaction.editReply({
                             content: `Error: ${errorMessage}`,
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         });
                     } else {
                         await interaction.reply({
                             content: `Error: ${errorMessage}`,
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         });
                     }
                 }
@@ -308,7 +309,7 @@ function createCommandsList() {
                     if (!hasAdminPerms) {
                         await interaction.reply({
                             content: "You don't have permission to use this command.",
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         });
                         return;
                     }
@@ -319,7 +320,7 @@ function createCommandsList() {
                     if (userIds.length === 0) {
                         await interaction.reply({
                             content: `No users have ${permissionType} permission in this server.`,
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         });
                         return;
                     }
@@ -338,13 +339,13 @@ function createCommandsList() {
                     
                     await interaction.reply({
                         content: `**Users with ${permissionType} permission:**\n${userList.join('\n')}`,
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     });
                 } catch (error) {
                     console.error('Error in permissions command:', error);
                     await interaction.reply({
                         content: `An error occurred: ${error.message}`,
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     });
                 }
             }
@@ -518,7 +519,7 @@ const standardCommandsList = {
         execute: async (interaction) => {
             await interaction.reply({
                 content: `Bot is working! User ID: ${interaction.user.id}`,
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         }
     },

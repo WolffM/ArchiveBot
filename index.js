@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
@@ -169,7 +169,7 @@ async function getRoleForPermission(guild, permissionType) {
     }
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     log.success('ready', { guilds: client.guilds.cache.size });
 
     // Initialize scheduler for reminders and events
@@ -216,9 +216,9 @@ client.on('interactionCreate', async interaction => {
         );
         
         if (!hasAdminPerms) {
-            await interaction.reply({ 
+            await interaction.reply({
                 content: "You don't have permission to use this command.",
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -236,9 +236,9 @@ client.on('interactionCreate', async interaction => {
         );
         
         if (!hasTaskPerms) {
-            await interaction.reply({ 
+            await interaction.reply({
                 content: "You don't have access to the task system. Please ask an admin for access.",
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
@@ -253,7 +253,7 @@ client.on('interactionCreate', async interaction => {
     // Fallback for unknown commands
     await interaction.reply({
         content: "Command not found.",
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
     });
 });
 
