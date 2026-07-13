@@ -1,0 +1,18 @@
+packages:
+  - .
+
+# Native modules that must run install scripts to compile their bindings.
+# pnpm blocks dependency build scripts by default (malicious-postinstall defense);
+# these are explicitly trusted because they genuinely need to compile.
+# NB: pnpm 11 replaced `onlyBuiltDependencies` with `allowBuilds` (map form).
+allowBuilds:
+  canvas: true
+  sqlite3: true
+
+# Supply-chain: dependency cooldown. External packages must be 7 days old before
+# they resolve — malicious npm releases are near-always caught within hours, so we let
+# the ecosystem find them first. @wolffm/* is EXEMPT: it's the cross-ecosystem deploy
+# path and must install immediately.
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - '@wolffm/*'
