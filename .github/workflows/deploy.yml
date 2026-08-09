@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, hadoku-builder]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '["self-hosted","hadoku-builder"]') }}
     steps:
       - name: Trigger hadoku_site to redeploy
         env:
