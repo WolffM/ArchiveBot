@@ -324,8 +324,59 @@ describe('Scheduler Integration Tests', () => {
             // Verify the sent message uses eventName, not "undefined"
             expect(mockChannel.send).toHaveBeenCalled();
             const sendCall = mockChannel.send.mock.calls[0][0];
-            expect(sendCall.content).toBe('**Event:** Basketball Pickup Game');
+            const [title, link] = sendCall.content.split('\n');
+            expect(title).toBe('**Event:** Basketball Pickup Game');
+            // ...and now carries a way to actually reach the event.
+            expect(link).toBe(
+                `https://discord.com/events/test-guild-integration/${eventItem.scheduledEventId}`
+            );
             expect(sendCall.content).not.toContain('undefined');
+        });
+    });
+
+    describe('buildEventStartMessage', () => {
+        const base = {
+            eventName: 'Big Walk #2',
+            guildId: 'guild-1',
+            scheduledEventId: 'event-1',
+        };
+
+        it('links the Discord event', () => {
+            expect(scheduler.buildEventStartMessage(base)).toBe(
+                '**Event:** Big Walk #2\nhttps://discord.com/events/guild-1/event-1'
+            );
+        });
+
+        it('adds a URL location — the meet link is the actionable one', () => {
+            const content = scheduler.buildEventStartMessage({
+                ...base,
+                location: 'https://hadoku.me/meet?e=qey2bkee5ath',
+            });
+            expect(content.split('\n')).toEqual([
+                '**Event:** Big Walk #2',
+                'https://discord.com/events/guild-1/event-1',
+                'https://hadoku.me/meet?e=qey2bkee5ath',
+            ]);
+        });
+
+        it('does not echo a non-URL location back as a link', () => {
+            // /event defaults an external event's location to its own name, so
+            // printing it unconditionally would repeat the title.
+            const content = scheduler.buildEventStartMessage({
+                ...base,
+                eventName: 'Big walk',
+                location: 'Big walk',
+            });
+            expect(content).toBe('**Event:** Big walk\nhttps://discord.com/events/guild-1/event-1');
+        });
+
+        it('survives an item with no ids or location', () => {
+            expect(scheduler.buildEventStartMessage({ eventName: 'Bare' })).toBe('**Event:** Bare');
+        });
+
+        it('ignores a null location without printing "null"', () => {
+            const content = scheduler.buildEventStartMessage({ ...base, location: null });
+            expect(content).not.toContain('null');
         });
     });
 
@@ -483,7 +534,11 @@ describe('Scheduler Integration Tests', () => {
             // Step 5: Verify the event message was sent to the channel
             expect(mockChannel.send).toHaveBeenCalled();
             const sendCall = mockChannel.send.mock.calls[0][0];
-            expect(sendCall.content).toBe('**Event:** Game Night');
+            const [title, link] = sendCall.content.split('\n');
+            expect(title).toBe('**Event:** Game Night');
+            expect(link).toBe(
+                `https://discord.com/events/test-guild-integration/${eventItem.scheduledEventId}`
+            );
             expect(sendCall.content).not.toContain('undefined');
 
             // Step 6: Verify the event was deactivated (one-time, no recurring)
