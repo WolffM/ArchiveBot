@@ -369,6 +369,33 @@ describe('POST /api/events/channels', () => {
         );
         add(createMockChannel({ id: 'c-voice', name: 'Voice Chat', guildId: GUILD_ID, type: 2 }));
         add(createMockChannel({ id: 'cat-1', name: 'Outdoors', guildId: GUILD_ID, type: 4 }));
+        // A public thread hanging off a text channel. This guild's real event
+        // announcements live in one of these, so the picker has to offer them.
+        add(
+            createMockChannel({
+                id: 'c-thread',
+                name: 'party gamers',
+                guildId: GUILD_ID,
+                type: 11,
+                isThread: () => true,
+                locked: false,
+                parent: { id: 'c-general', name: 'general' },
+                parentId: 'c-general',
+            })
+        );
+        // ...but not a locked one, which rejects sends from everyone but mods.
+        add(
+            createMockChannel({
+                id: 'c-thread-locked',
+                name: 'old-planning',
+                guildId: GUILD_ID,
+                type: 11,
+                isThread: () => true,
+                locked: true,
+                parent: { id: 'c-general', name: 'general' },
+                parentId: 'c-general',
+            })
+        );
         return guild;
     }
 
@@ -434,6 +461,7 @@ describe('POST /api/events/channels', () => {
         expect(res.body.success).toBe(true);
         expect(res.body.channels).toEqual([
             { id: 'c-general', name: 'general', parentName: null },
+            { id: 'c-thread', name: 'party gamers', parentName: 'general' },
             { id: 'c-walks', name: 'walks', parentName: 'Outdoors' },
         ]);
     });
@@ -454,7 +482,7 @@ describe('POST /api/events/channels', () => {
 
         expect(res.status).toBe(200);
         // The configured guild's channels, and no lookup of the requested one.
-        expect(res.body.channels.map((c) => c.id)).toEqual(['c-general', 'c-walks']);
+        expect(res.body.channels.map((c) => c.id)).toEqual(['c-general', 'c-thread', 'c-walks']);
         expect(client.guilds.fetch).not.toHaveBeenCalledWith('some-other-guild');
     });
 
