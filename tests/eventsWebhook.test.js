@@ -466,6 +466,89 @@ describe('POST /api/events/channels', () => {
         ]);
     });
 
+    // A forum post is a thread, and only ACTIVE threads reach the gateway
+    // cache. This guild organizes topics as forum posts, so before archived
+    // posts were fetched the picker showed a fraction of the forum and hid
+    // channels people actually use.
+    function archivedPost(n) {
+        return createMockChannel({
+            id: `t-arch-${n}`,
+            name: `post ${String(n).padStart(2, '0')}`,
+            guildId: GUILD_ID,
+            type: 11,
+            isThread: () => true,
+            locked: false,
+            parent: { id: 'c-forum', name: 'more-channels' },
+            parentId: 'c-forum',
+        });
+    }
+
+    function guildWithForum(archived, { fetchThrows = false } = {}) {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const add = (channel) => guild.channels.cache.set(channel.id, channel);
+        add(createMockChannel({ id: 'c-general', name: 'general', guildId: GUILD_ID }));
+        add(
+            createMockChannel({
+                id: 'c-forum',
+                name: 'more-channels',
+                guildId: GUILD_ID,
+                type: 15, // ChannelType.GuildForum — holds posts, not messages
+                threads: {
+                    fetchArchived: jest.fn(async () => {
+                        if (fetchThrows) throw new Error('missing access');
+                        return {
+                            threads: createMockCollection(archived.map((t) => [t.id, t])),
+                            hasMore: false,
+                        };
+                    }),
+                },
+            })
+        );
+        return guild;
+    }
+
+    test('offers archived forum posts — posting to one unarchives it', async () => {
+        const handler = makeHandler(guildWithForum([archivedPost(1), archivedPost(2)]));
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.channels).toEqual([
+            { id: 'c-general', name: 'general', parentName: null },
+            { id: 't-arch-1', name: 'post 01', parentName: 'more-channels' },
+            { id: 't-arch-2', name: 'post 02', parentName: 'more-channels' },
+        ]);
+        // The forum itself is not postable — posts go in it, messages do not.
+        expect(res.body.channels.some((c) => c.id === 'c-forum')).toBe(false);
+    });
+
+    test('caps one parent at 25 threads so a big forum cannot bury the channels', async () => {
+        const archived = Array.from({ length: 40 }, (_, i) => archivedPost(i + 1));
+        const handler = makeHandler(guildWithForum(archived));
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.channels.filter((c) => c.parentName === 'more-channels')).toHaveLength(25);
+        // The plain channel still makes it out — that is the point of the cap.
+        expect(res.body.channels.some((c) => c.id === 'c-general')).toBe(true);
+    });
+
+    test('a forum the bot cannot read does not cost the caller the whole list', async () => {
+        const handler = makeHandler(guildWithForum([], { fetchThrows: true }));
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.channels).toEqual([{ id: 'c-general', name: 'general', parentName: null }]);
+    });
+
     test('ignores a caller-supplied guild_id — this is not an enumeration oracle', async () => {
         const guild = guildWithChannels();
         const client = mockClient(guild);
