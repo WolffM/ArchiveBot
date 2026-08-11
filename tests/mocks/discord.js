@@ -154,6 +154,14 @@ function createMockChannel(overrides = {}) {
     return {
         id: 'channel-123',
         name: 'test-channel',
+        // ChannelType.GuildText. Channel listing filters on this, on guildId
+        // (cross-guild announce guard) and on permissionsFor, so the mock has
+        // to carry all three or a passing test proves nothing.
+        type: 0,
+        guildId: 'guild-123',
+        parent: null,
+        parentId: null,
+        permissionsFor: jest.fn(() => ({ has: () => true })),
         isTextBased: () => true,
         messages: {
             fetch: jest.fn().mockResolvedValue(new Map()),
@@ -256,10 +264,19 @@ function createMockGuild(overrides = {}) {
         },
         members: {
             cache: new Map(),
-            fetch: jest.fn().mockResolvedValue(createMockMember())
+            fetch: jest.fn().mockResolvedValue(createMockMember()),
+            // The bot's own member object — what channel permissions are
+            // resolved against. createMockMember takes ROLES, not overrides,
+            // so the bot member is spelled out rather than derived from it.
+            me: { id: 'bot-user-id', user: { id: 'bot-user-id', username: 'ArchiveBot' } },
+            fetchMe: jest.fn().mockResolvedValue({
+                id: 'bot-user-id',
+                user: { id: 'bot-user-id', username: 'ArchiveBot' }
+            })
         },
         channels: {
-            cache: createMockCollection()
+            cache: createMockCollection(),
+            fetch: jest.fn().mockResolvedValue(createMockChannel())
         },
         scheduledEvents: {
             cache: scheduledEventsCache,

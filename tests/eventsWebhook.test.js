@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { createHandler } = require('../lib/webhookServer');
 const { validateEventPayload } = require('../lib/eventWebhook');
-const { createMockGuild } = require('./mocks/discord');
+const { createMockGuild, createMockChannel, createMockCollection } = require('./mocks/discord');
+const scheduler = require('../lib/scheduler');
 
 const EVENTS_SECRET = 'events-secret-value';
 const PICKLEBALL_SECRET = 'test-secret-value';
@@ -232,6 +233,96 @@ describe('POST /api/events/create', () => {
         expect(res.body.error).toBe('missing_manage_events_permission');
     });
 
+    test('creates the advance-warning companion when remindBeforeMs is given', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const payload = validPayload({ remindBeforeMs: 3600 * 1000 });
+        const res = await postWithHandler(handler, '/api/events/create', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.reminderCreated).toBe(true);
+
+        const stored = JSON.parse(
+            fs.readFileSync(path.join(OUTPUT_DIR, 'scheduled.json'), 'utf8')
+        );
+        const items = stored.items.filter((i) => i.sourceKey === payload.idempotencyKey);
+        expect(items).toHaveLength(2);
+
+        const reminder = items.find((i) => i.type === 'event_reminder');
+        expect(reminder).toBeTruthy();
+        expect(reminder.scheduledEventId).toBe(res.body.eventId);
+        expect(reminder.channelId).toBe(CHANNEL_ID);
+        expect(reminder.remindBeforeMs).toBe(3600 * 1000);
+        expect(reminder.active).toBe(true);
+        // Fires one lead time ahead of the event, not at it.
+        expect(new Date(reminder.triggerAt).getTime()).toBe(
+            new Date(payload.startTime).getTime() - 3600 * 1000
+        );
+        // Distinct ids, or /remove and the store's own bookkeeping collide.
+        expect(items[0].id).not.toBe(items[1].id);
+    });
+
+    test('creates no companion when remindBeforeMs is omitted', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const payload = validPayload();
+        const res = await postWithHandler(handler, '/api/events/create', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.reminderCreated).toBe(false);
+        const stored = JSON.parse(
+            fs.readFileSync(path.join(OUTPUT_DIR, 'scheduled.json'), 'utf8')
+        );
+        const items = stored.items.filter((i) => i.sourceKey === payload.idempotencyKey);
+        expect(items).toHaveLength(1);
+        expect(items[0].type).toBe('event');
+    });
+
+    test('skips the companion when the lead time has already passed', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        // Event in 30 minutes, reminder asked for an hour ahead — that moment
+        // is behind us, and firing it would announce a lead time already spent.
+        const start = new Date(Date.now() + 30 * 60 * 1000);
+        const payload = validPayload({
+            startTime: start.toISOString(),
+            endTime: new Date(start.getTime() + 3600 * 1000).toISOString(),
+            remindBeforeMs: 3600 * 1000,
+        });
+        const res = await postWithHandler(handler, '/api/events/create', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.reminderCreated).toBe(false);
+        const stored = JSON.parse(
+            fs.readFileSync(path.join(OUTPUT_DIR, 'scheduled.json'), 'utf8')
+        );
+        const items = stored.items.filter((i) => i.sourceKey === payload.idempotencyKey);
+        expect(items).toHaveLength(1);
+        expect(items[0].type).toBe('event');
+    });
+
+    test('400 on a malformed remindBeforeMs rather than a NaN reminder later', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        // Infinity is absent deliberately: JSON.stringify turns it into null,
+        // which is the documented "no reminder wanted" case, not a bad value.
+        for (const bad of ['3600000', -1, 0, 40 * 24 * 3600 * 1000]) {
+            const payload = validPayload({ remindBeforeMs: bad });
+            const res = await postWithHandler(handler, '/api/events/create', payload, {
+                'x-hadoku-signature': signBody(JSON.stringify(payload)),
+            });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toBe('invalid_remind_before');
+        }
+        expect(guild.scheduledEvents.create).not.toHaveBeenCalled();
+    });
+
     test('pickleball route still authenticates with its own secret only', async () => {
         const channelSend = jest.fn().mockResolvedValue(undefined);
         const handler = createHandler({
@@ -248,6 +339,158 @@ describe('POST /api/events/create', () => {
         });
         expect(res.status).toBe(200);
         expect(channelSend).toHaveBeenCalled();
+    });
+});
+
+describe('POST /api/events/channels', () => {
+    // A guild whose channel cache spans everything the picker must survive:
+    // two postable text channels (one nested under a category), a text channel
+    // the bot cannot post in, and a non-text channel.
+    function guildWithChannels() {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const add = (channel) => guild.channels.cache.set(channel.id, channel);
+        add(createMockChannel({ id: 'c-general', name: 'general', guildId: GUILD_ID }));
+        add(
+            createMockChannel({
+                id: 'c-walks',
+                name: 'walks',
+                guildId: GUILD_ID,
+                parent: { id: 'cat-1', name: 'Outdoors' },
+                parentId: 'cat-1',
+            })
+        );
+        add(
+            createMockChannel({
+                id: 'c-locked',
+                name: 'mods-only',
+                guildId: GUILD_ID,
+                permissionsFor: jest.fn(() => ({ has: () => false })),
+            })
+        );
+        add(createMockChannel({ id: 'c-voice', name: 'Voice Chat', guildId: GUILD_ID, type: 2 }));
+        add(createMockChannel({ id: 'cat-1', name: 'Outdoors', guildId: GUILD_ID, type: 4 }));
+        return guild;
+    }
+
+    beforeEach(() => {
+        process.env.ARCHIVEBOT_EVENT_GUILD_ID = GUILD_ID;
+    });
+
+    afterAll(() => {
+        delete process.env.ARCHIVEBOT_EVENT_GUILD_ID;
+    });
+
+    test('404 when the events secret is not configured', async () => {
+        const handler = createHandler({
+            discordClient: mockClient(guildWithChannels()),
+            channelId: 'chan',
+            secret: PICKLEBALL_SECRET,
+            eventsSecret: null,
+        });
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+        expect(res.status).toBe(404);
+    });
+
+    test('401 without a signature', async () => {
+        const handler = makeHandler(guildWithChannels());
+        const res = await postWithHandler(handler, '/api/events/channels', {
+            source: 'meet',
+            timestamp: Date.now(),
+        });
+        expect(res.status).toBe(401);
+        expect(res.body.error).toBe('invalid_signature');
+    });
+
+    test('401 with a signature from the wrong (pickleball) secret', async () => {
+        const handler = makeHandler(guildWithChannels());
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload), PICKLEBALL_SECRET),
+        });
+        expect(res.status).toBe(401);
+    });
+
+    test('400 on a stale timestamp — a captured read stays replayable otherwise', async () => {
+        const handler = makeHandler(guildWithChannels());
+        const payload = { source: 'meet', timestamp: Date.now() - 30 * 60 * 1000 };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('stale_timestamp');
+    });
+
+    test('lists only postable text channels, category-then-name, with parentName', async () => {
+        const handler = makeHandler(guildWithChannels());
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.channels).toEqual([
+            { id: 'c-general', name: 'general', parentName: null },
+            { id: 'c-walks', name: 'walks', parentName: 'Outdoors' },
+        ]);
+    });
+
+    test('ignores a caller-supplied guild_id — this is not an enumeration oracle', async () => {
+        const guild = guildWithChannels();
+        const client = mockClient(guild);
+        const handler = createHandler({
+            discordClient: client,
+            channelId: null,
+            secret: PICKLEBALL_SECRET,
+            eventsSecret: EVENTS_SECRET,
+        });
+        const payload = { source: 'meet', timestamp: Date.now(), guild_id: 'some-other-guild' };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+
+        expect(res.status).toBe(200);
+        // The configured guild's channels, and no lookup of the requested one.
+        expect(res.body.channels.map((c) => c.id)).toEqual(['c-general', 'c-walks']);
+        expect(client.guilds.fetch).not.toHaveBeenCalledWith('some-other-guild');
+    });
+
+    test('500 when no target guild is configured', async () => {
+        delete process.env.ARCHIVEBOT_EVENT_GUILD_ID;
+        const handler = makeHandler(guildWithChannels());
+        const payload = { source: 'meet', timestamp: Date.now() };
+        const res = await postWithHandler(handler, '/api/events/channels', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('event_target_not_configured');
+    });
+
+    test('GET is not a route — the HMAC signs a body a GET does not have', async () => {
+        const handler = makeHandler(guildWithChannels());
+        const res = await new Promise((resolve, reject) => {
+            const server = http.createServer(handler);
+            server.listen(0, '127.0.0.1', () => {
+                const { port } = server.address();
+                http.get(
+                    { host: '127.0.0.1', port, path: '/api/events/channels' },
+                    (r) => {
+                        r.resume();
+                        r.on('end', () => {
+                            server.close();
+                            resolve({ status: r.statusCode });
+                        });
+                    }
+                ).on('error', (err) => {
+                    server.close();
+                    reject(err);
+                });
+            });
+        });
+        expect(res.status).toBe(404);
     });
 });
 
@@ -274,5 +517,106 @@ describe('validateEventPayload', () => {
         const result = validateEventPayload(validPayload({ location: undefined }));
         expect(result.ok).toBe(true);
         expect(result.value.location).toBe('Board game night');
+    });
+});
+
+/**
+ * The webhook and the scheduler were tested in separate files with mocks that
+ * never met, which is exactly why webhook-created events shipped for months
+ * with no advance reminder at all. These drive one payload all the way to the
+ * message text.
+ */
+describe('webhook event → scheduler tick (end to end)', () => {
+    let announceChannel;
+
+    function tickClient(guild) {
+        return {
+            user: { id: 'bot-user-id' },
+            guilds: { cache: createMockCollection([[GUILD_ID, guild]]) },
+            channels: {
+                fetch: jest.fn(async (id) => {
+                    if (id === CHANNEL_ID) return announceChannel;
+                    const err = new Error('Unknown Channel');
+                    err.code = 10003;
+                    throw err;
+                }),
+            },
+        };
+    }
+
+    async function createThenFire(guild, { subscribers = [] } = {}) {
+        const handler = makeHandler(guild);
+        const payload = validPayload({ remindBeforeMs: 3600 * 1000 });
+        const res = await postWithHandler(handler, '/api/events/create', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+        expect(res.status).toBe(200);
+
+        const scheduledEvent = guild.scheduledEvents.cache.get(res.body.eventId);
+        for (const id of subscribers) scheduledEvent._addSubscriber(id);
+
+        // Bring the reminder due instead of waiting an hour for it.
+        const data = scheduler.loadScheduledItems(GUILD_ID);
+        const reminder = data.items.find((i) => i.type === 'event_reminder');
+        expect(reminder).toBeTruthy();
+        reminder.triggerAt = new Date(Date.now() - 1000).toISOString();
+        // Keep the event item itself out of this tick.
+        data.items.find((i) => i.type === 'event').active = false;
+        scheduler.saveScheduledItems(GUILD_ID, data);
+
+        // initializeScheduler kicks off an un-awaited startup check and
+        // checkAllItems guards on an isChecking flag, so calling it again here
+        // would return instantly against the in-flight one and assert on
+        // nothing. Drain turns until the post lands instead.
+        scheduler.initializeScheduler(tickClient(guild));
+        for (let i = 0; i < 50 && announceChannel.send.mock.calls.length === 0; i++) {
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+        return payload;
+    }
+
+    beforeEach(() => {
+        process.env.ARCHIVEBOT_EVENT_GUILD_ID = GUILD_ID;
+        process.env.ARCHIVEBOT_EVENT_CHANNEL_ID = CHANNEL_ID;
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+        announceChannel = createMockChannel({ id: CHANNEL_ID, guildId: GUILD_ID });
+    });
+
+    afterEach(() => {
+        scheduler.stopScheduler();
+    });
+
+    afterAll(() => {
+        delete process.env.ARCHIVEBOT_EVENT_GUILD_ID;
+        delete process.env.ARCHIVEBOT_EVENT_CHANNEL_ID;
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+    });
+
+    test('posts an advance reminder that never @-mentions the bot itself', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const payload = await createThenFire(guild);
+
+        expect(announceChannel.send).toHaveBeenCalledTimes(1);
+        const sent = announceChannel.send.mock.calls[0][0];
+        expect(sent.content).toContain(payload.name);
+        expect(sent.content).toContain('starts in 1h');
+        // creatorId is the bot on this path — mentioning it would open every
+        // meet reminder by pinging ArchiveBot.
+        expect(sent.content).not.toContain('<@bot-user-id>');
+        expect(sent.allowedMentions.users).not.toContain('bot-user-id');
+        // No mentions at all here, so no dangling blank line either.
+        expect(sent.content.startsWith('**Reminder:**')).toBe(true);
+        expect(sent.content).not.toContain('NaN');
+    });
+
+    test('still mentions the humans who marked themselves interested', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        await createThenFire(guild, { subscribers: ['human-1', 'human-2'] });
+
+        const sent = announceChannel.send.mock.calls[0][0];
+        expect(sent.content).toContain('<@human-1>');
+        expect(sent.content).toContain('<@human-2>');
+        expect(sent.content).not.toContain('<@bot-user-id>');
+        expect(sent.allowedMentions.users.sort()).toEqual(['human-1', 'human-2']);
     });
 });
