@@ -202,6 +202,12 @@ function createMockScheduledEvent(overrides = {}) {
         url: 'https://discord.com/events/guild-123/event-123',
         fetchSubscribers: jest.fn().mockResolvedValue(subscribers),
         delete: jest.fn().mockResolvedValue(undefined),
+        // Mutates in place, like the real one: the update route reads back
+        // nothing, but a test asserting the new start time needs it to stick.
+        edit: jest.fn(function (options) {
+            Object.assign(this, options);
+            return Promise.resolve(this);
+        }),
         // Helper to add interested users for testing
         _addSubscriber: function(userId) {
             subscribers.set(userId, { user: { id: userId } });

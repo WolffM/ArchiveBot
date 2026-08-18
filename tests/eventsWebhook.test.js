@@ -731,3 +731,200 @@ describe('webhook event → scheduler tick (end to end)', () => {
         expect(sent.allowedMentions.users.sort()).toEqual(['human-1', 'human-2']);
     });
 });
+
+describe('POST /api/events/update', () => {
+    beforeEach(() => {
+        process.env.ARCHIVEBOT_EVENT_GUILD_ID = GUILD_ID;
+        process.env.ARCHIVEBOT_EVENT_CHANNEL_ID = CHANNEL_ID;
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+    });
+
+    afterAll(() => {
+        delete process.env.ARCHIVEBOT_EVENT_GUILD_ID;
+        delete process.env.ARCHIVEBOT_EVENT_CHANNEL_ID;
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+    });
+
+    function post(handler, payload) {
+        return postWithHandler(handler, '/api/events/update', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+    }
+
+    /** Create an event through the real route, then hand back what it made. */
+    async function seed(handler, overrides = {}) {
+        // Built once: validPayload randomises the idempotency key, so signing a
+        // second call's output would sign a body that was never sent.
+        const payload = validPayload({ remindBeforeMs: 3600000, ...overrides });
+        return postWithHandler(handler, '/api/events/create', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
+        });
+    }
+
+    function updatePayload(scheduledEventId, overrides = {}) {
+        const start = new Date(Date.now() + 48 * 3600 * 1000);
+        const end = new Date(start.getTime() + 90 * 60 * 1000);
+        return {
+            source: 'meet',
+            slug: 'testslug1234',
+            idempotencyKey: `meet-update:test-${Math.random().toString(36).slice(2)}`,
+            timestamp: Date.now(),
+            scheduledEventId,
+            name: 'Board game night',
+            startTime: start.toISOString(),
+            endTime: end.toISOString(),
+            description: 'moved',
+            location: 'https://hadoku.me/meet?e=testslug1234',
+            remindBeforeMs: 3600000,
+            ...overrides,
+        };
+    }
+
+    test('401 without a signature', async () => {
+        const handler = makeHandler(createMockGuild({ id: GUILD_ID }));
+        const res = await postWithHandler(handler, '/api/events/update', updatePayload('e1'));
+        expect(res.status).toBe(401);
+    });
+
+    test('400 without a scheduledEventId', async () => {
+        const handler = makeHandler(createMockGuild({ id: GUILD_ID }));
+        const payload = updatePayload('e1');
+        delete payload.scheduledEventId;
+        const res = await post(handler, payload);
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('missing_scheduled_event_id');
+    });
+
+    test('400 when the new start is in the past', async () => {
+        const handler = makeHandler(createMockGuild({ id: GUILD_ID }));
+        const start = new Date(Date.now() - 3600 * 1000);
+        const res = await post(
+            handler,
+            updatePayload('e1', {
+                startTime: start.toISOString(),
+                endTime: new Date(start.getTime() + 3600 * 1000).toISOString(),
+            })
+        );
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('start_in_past');
+    });
+
+    test('404 when nothing tracks that event id', async () => {
+        const handler = makeHandler(createMockGuild({ id: GUILD_ID }));
+        const res = await post(handler, updatePayload('never-created'));
+        expect(res.status).toBe(404);
+        expect(res.body.error).toBe('event_not_tracked');
+    });
+
+    test('moves the guild event and re-points both tracked items', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const created = await seed(handler);
+        const eventId = created.body.eventId;
+
+        const payload = updatePayload(eventId);
+        const res = await post(handler, payload);
+        expect(res.status).toBe(200);
+        expect(res.body.eventId).toBe(eventId);
+        expect(res.body.reminderActive).toBe(true);
+
+        const scheduledEvent = guild.scheduledEvents.cache.get(eventId);
+        expect(scheduledEvent.edit).toHaveBeenCalledTimes(1);
+        expect(new Date(scheduledEvent.scheduledStartTime).toISOString()).toBe(payload.startTime);
+        expect(scheduledEvent.description).toBe('moved');
+
+        const items = scheduler.loadScheduledItems(GUILD_ID).items;
+        const start = items.find(i => i.type === 'event' && i.scheduledEventId === eventId);
+        const reminder = items.find(i => i.type === 'event_reminder' && i.scheduledEventId === eventId);
+        expect(start.triggerAt).toBe(payload.startTime);
+        expect(start.lastTriggered).toBeNull();
+        expect(reminder.active).toBe(true);
+        expect(new Date(reminder.triggerAt).getTime()).toBe(
+            new Date(payload.startTime).getTime() - 3600000
+        );
+    });
+
+    test('a repeated update key is a no-op', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const created = await seed(handler);
+        const eventId = created.body.eventId;
+
+        const payload = updatePayload(eventId);
+        await post(handler, payload);
+        const again = await post(handler, { ...payload, timestamp: Date.now() });
+
+        expect(again.status).toBe(200);
+        expect(again.body.deduped).toBe(true);
+        expect(guild.scheduledEvents.cache.get(eventId).edit).toHaveBeenCalledTimes(1);
+    });
+
+    test('cancel deletes the guild event and deactivates every tracked item', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const created = await seed(handler);
+        const eventId = created.body.eventId;
+        const scheduledEvent = guild.scheduledEvents.cache.get(eventId);
+
+        const res = await post(handler, {
+            source: 'meet',
+            idempotencyKey: 'meet-cancel:testslug1234#1',
+            timestamp: Date.now(),
+            scheduledEventId: eventId,
+            cancel: true,
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.cancelled).toBe(true);
+        expect(scheduledEvent.delete).toHaveBeenCalledTimes(1);
+
+        const items = scheduler
+            .loadScheduledItems(GUILD_ID)
+            .items.filter(i => i.scheduledEventId === eventId);
+        expect(items.length).toBeGreaterThanOrEqual(2);
+        expect(items.every(i => i.active === false)).toBe(true);
+    });
+
+    test('a move inside the lead time retires the reminder rather than firing it late', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const created = await seed(handler);
+        const eventId = created.body.eventId;
+
+        // Starts in 20 minutes; the hour of lead time is already spent.
+        const start = new Date(Date.now() + 20 * 60 * 1000);
+        const res = await post(
+            handler,
+            updatePayload(eventId, {
+                startTime: start.toISOString(),
+                endTime: new Date(start.getTime() + 3600 * 1000).toISOString(),
+            })
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.body.reminderActive).toBe(false);
+        const reminder = scheduler
+            .loadScheduledItems(GUILD_ID)
+            .items.find(i => i.type === 'event_reminder' && i.scheduledEventId === eventId);
+        expect(reminder.active).toBe(false);
+    });
+
+    test('404 and a cleanup when the event was deleted in Discord', async () => {
+        const guild = createMockGuild({ id: GUILD_ID });
+        const handler = makeHandler(guild);
+        const created = await seed(handler);
+        const eventId = created.body.eventId;
+
+        // Someone removed it from the guild calendar by hand.
+        guild.scheduledEvents.cache.delete(eventId);
+
+        const res = await post(handler, updatePayload(eventId));
+        expect(res.status).toBe(404);
+        expect(res.body.error).toBe('event_not_found');
+
+        const items = scheduler
+            .loadScheduledItems(GUILD_ID)
+            .items.filter(i => i.scheduledEventId === eventId);
+        expect(items.every(i => i.active === false)).toBe(true);
+    });
+});
