@@ -1,8 +1,17 @@
+// Stubbed so the failure mirror is observable without a monitoring-api. The
+// point of the alert namespace is that an accepted-then-undelivered message
+// leaves a trace somewhere other than a 500 nobody reads.
+jest.mock('../lib/ledger', () => ({
+    mirrorToLedger: jest.fn(),
+    mirrorFailureToLedger: jest.fn(),
+}));
+
 const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createHandler } = require('../lib/webhookServer');
+const { mirrorToLedger, mirrorFailureToLedger } = require('../lib/ledger');
 const { validateMessagePayload, MAX_CONTENT_LENGTH } = require('../lib/messageWebhook');
 
 const EVENTS_SECRET = 'events-secret-value';
@@ -147,6 +156,59 @@ describe('POST /api/messages/send', () => {
         process.env.ARCHIVEBOT_EVENT_GUILD_ID = GUILD_ID;
         process.env.ARCHIVEBOT_EVENT_CHANNEL_ID = CHANNEL_ID;
         fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+        mirrorToLedger.mockClear();
+        mirrorFailureToLedger.mockClear();
+    });
+
+    describe('telemetry', () => {
+        it('mirrors a delivered message as activity, and raises no alert', async () => {
+            const { client } = mockClient();
+            const res = await post(makeHandler(client), validPayload());
+
+            expect(res.status).toBe(200);
+            expect(mirrorToLedger).toHaveBeenCalledWith(
+                'archivebot.message',
+                'message posted',
+                expect.objectContaining({ source: 'meet', channelId: CHANNEL_ID })
+            );
+            expect(mirrorFailureToLedger).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ['missing_send_permission', Object.assign(new Error('Missing Permissions'), { code: 50013 })],
+            ['discord_rate_limited', Object.assign(new Error('Too Many Requests'), { status: 429 })],
+            ['message_send_failed', new Error('gateway exploded')],
+        ])('raises one alert when the send fails with %s', async (reason, err) => {
+            const { client, send } = mockClient();
+            send.mockRejectedValueOnce(err);
+
+            const res = await post(makeHandler(client), validPayload());
+
+            expect(res.body.success).toBe(false);
+            // Accepted, then undelivered — the caller sees a 5xx it may not act
+            // on, so the ledger carries the record. Exactly one alert per
+            // failure, whichever Discord code caused it.
+            expect(mirrorFailureToLedger).toHaveBeenCalledTimes(1);
+            expect(mirrorFailureToLedger).toHaveBeenCalledWith(
+                'archivebot.message',
+                'message not delivered',
+                expect.objectContaining({ source: 'meet', channelId: CHANNEL_ID, reason, error: err })
+            );
+            expect(mirrorToLedger).not.toHaveBeenCalled();
+        });
+
+        it('stays silent for a request refused before any send was attempted', async () => {
+            const { client } = mockClient();
+            // Bad signature: the caller's bug, already answered with a 401.
+            // Alerting on it would drown the failures that matter.
+            const payload = validPayload();
+            const res = await postWithHandler(makeHandler(client), '/api/messages/send', payload, {
+                'x-hadoku-signature': signBody(JSON.stringify(payload), 'wrong-secret'),
+            });
+
+            expect(res.status).toBe(401);
+            expect(mirrorFailureToLedger).not.toHaveBeenCalled();
+        });
     });
 
     afterAll(() => {

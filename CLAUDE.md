@@ -4,7 +4,7 @@
 
 Discord bot (discord.js v14, Node.js, SQLite). Features: message archiving, task management, color roles, permissions, reminders/events, pickleball automation.
 
-Local PM2 service (runs on the developer's Windows/WSL machine, not a remote server). Deployed via push to `main` → GitHub Actions `repository_dispatch` to `WolffM/hadoku_site` → self-hosted runner on the same machine → `git pull` + `pm2 restart archive-bot`. The `hadoku.me` domain is a Cloudflare tunnel back to localhost.
+Local PM2 service (runs on the developer's Windows/WSL machine, not a remote server). Deployed via push to `main` → GitHub Actions `repository_dispatch` to `WolffM/hadoku_site` → self-hosted runner on the same machine → `git pull` + `pnpm install --frozen-lockfile` + `pm2 restart archive-bot`. The build command lives in `../hadoku_site/services/mgmt-api/deploy-config.json`, not here — a new dependency needs its lockfile change committed or the deploy fails on the frozen lockfile. The `hadoku.me` domain is a Cloudflare tunnel back to localhost.
 
 ## Command definitions
 
@@ -32,14 +32,60 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 
 ## Environment variables
 
-Required in `.env`:
+In production these are injected by the PM2 wrapper from the vault — see **Auth
+& secrets** below. `.env` (via `dotenv`) is a local-dev convenience only; the
+wrapper's `vaultKeys` map in `../hadoku_site/services/pm2/archive-bot-wrapper.mjs`
+is the authoritative list.
+
+Core:
 - `DISCORD_TOKEN` — bot token
 - `CLIENT_ID` — application ID
 
-Optional:
+Webhook server. The server starts if ANY route is fully configured; a route
+whose config is missing answers 404 rather than taking the others down. With
+none configured it does not start at all.
+- `PICKLEBALL_WEBHOOK_SECRET` / `PICKLEBALL_CHANNEL_ID` — scraper waitlist callbacks
+- `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET` — HMAC for `/api/events/*` and `/api/messages/send`, shared with meet-api
+- `ARCHIVEBOT_EVENT_GUILD_ID` / `ARCHIVEBOT_EVENT_CHANNEL_ID` — where webhook-created events land and announce
+- `WEBHOOK_PORT` — defaults to 3004
+
+Telemetry (see **Notifications & telemetry**):
+- `MONITORING_SERVICE_KEY` — monitoring service-tier key. Unset = the ledger mirror is a no-op.
+- `MONITORING_TELEMETRY_URL` — defaults to `https://hadoku.me/health/api/telemetry`
+
+Other:
 - `SCRAPE_API_URL` — defaults to `https://scraper.hadoku.me`
+- `SCRAPE_SERVICE_KEY` — service key for that API
+- `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR`, defaults to `INFO`
 
 GitHub secret: `HADOKU_SITE_TOKEN` (deploy workflow)
+
+## Notifications & telemetry
+
+Two conventions, both ecosystem-wide. Follow them when adding a send site.
+
+**Mentions are opt-in.** `utils/clientOptions.js` sets a client-level
+`allowedMentions: { parse: [] }`, so nothing pings by default. This bot relays
+strings it did not write — task titles, scraped event titles, upstream error
+text — and Discord's own default parses every mention it finds. A code fence
+does NOT suppress one. To mention deliberately, pass a per-message
+`allowedMentions` (it replaces the default), as `lib/scheduler.js` does.
+
+**Failures report themselves.** `lib/ledger.js` mirrors into monitoring-api's
+`service_events`, in two namespaces:
+
+- `mirrorToLedger('archivebot.*', …)` — activity, level `info`. The bot doing
+  its job. Lands in the events feed, counts toward nothing.
+- `mirrorFailureToLedger('archivebot.*', …)` — emits `event=alert.archivebot.*`
+  at level `error`, the same shape as mgmt-api's `alert.mgmt.<source>`. Reserved
+  for **a notification somebody was owed that did not happen**: a reminder that
+  could not fire, an accepted webhook whose message never posted, an event that
+  could not be created or cancelled.
+
+Do NOT alert on a refused request — a bad signature or an unparseable payload is
+the caller's bug, already answered with a 4xx, and alerting on it drowns the real
+thing. Both mirrors are fire-and-forget: telemetry must never delay or fail a
+notification.
 
 ## Dev commands
 
@@ -54,7 +100,8 @@ node index.js             # run locally
 
 - Publish an npm package or export anything for other repos (standalone PM2 service)
 - Follow the hadoku-site UI/worker/tunnel contract pattern (see `.github/workflows/deploy.yml`)
-- Use TypeScript, pnpm, or yarn (see `package.json`)
+- Use TypeScript or yarn (see `package.json`). It DOES use pnpm — `pnpm-lock.yaml`
+  and `pnpm-workspace.yaml` are committed and the deploy installs with it.
 
 ## Auth & secrets (hadoku ecosystem)
 
