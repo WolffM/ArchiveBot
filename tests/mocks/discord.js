@@ -189,7 +189,17 @@ function createMockRole(overrides = {}) {
 }
 
 /**
- * Creates a mock Discord scheduled event
+ * Creates a mock Discord scheduled event.
+ *
+ * The naming asymmetry here is real and is the whole point of modelling it:
+ * `scheduledStartTime` is the name of the CREATE/EDIT option, while a fetched
+ * event exposes the value as `scheduledStartAt` (a getter over
+ * scheduledStartTimestamp). There is no scheduledStartTime property to read.
+ *
+ * This mock used to define the option's name as the property, so code that
+ * read `event.scheduledStartTime` — undefined in production — passed every
+ * test. Both the gateway start-time sync and the tick's reconcile were dead
+ * on arrival because of it. Keep the two names distinct.
  */
 function createMockScheduledEvent(overrides = {}) {
     const subscribers = createMockCollection();
@@ -197,8 +207,8 @@ function createMockScheduledEvent(overrides = {}) {
         id: `event-${Date.now()}`,
         name: 'Test Event',
         description: 'Test event description',
-        scheduledStartTime: new Date(Date.now() + 3600000),
-        scheduledEndTime: null,
+        scheduledStartAt: new Date(Date.now() + 3600000),
+        scheduledEndAt: null,
         // External events carry their location here — the field the scheduler
         // reconciles item.location against. Absent on voice/stage events, so
         // an override of null is a meaningful thing for a test to pass.
@@ -207,10 +217,19 @@ function createMockScheduledEvent(overrides = {}) {
         url: 'https://discord.com/events/guild-123/event-123',
         fetchSubscribers: jest.fn().mockResolvedValue(subscribers),
         delete: jest.fn().mockResolvedValue(undefined),
-        // Mutates in place, like the real one: the update route reads back
-        // nothing, but a test asserting the new start time needs it to stick.
+        // Mutates in place, like the real one — and translates the edit's
+        // option names to the properties a read would see, which is exactly
+        // the step a plain Object.assign skipped.
         edit: jest.fn(function (options) {
-            Object.assign(this, options);
+            const { scheduledStartTime, scheduledEndTime, ...rest } = options;
+            Object.assign(this, rest);
+            if (scheduledStartTime !== undefined) {
+                this.scheduledStartAt = new Date(scheduledStartTime);
+            }
+            if (scheduledEndTime !== undefined) {
+                this.scheduledEndAt =
+                    scheduledEndTime === null ? null : new Date(scheduledEndTime);
+            }
             return Promise.resolve(this);
         }),
         // Helper to add interested users for testing
@@ -296,8 +315,12 @@ function createMockGuild(overrides = {}) {
                     id: `event-${Date.now()}`,
                     name: options.name,
                     description: options.description,
-                    scheduledStartTime: options.scheduledStartTime,
-                    scheduledEndTime: options.scheduledEndTime,
+                    scheduledStartAt: options.scheduledStartTime
+                        ? new Date(options.scheduledStartTime)
+                        : null,
+                    scheduledEndAt: options.scheduledEndTime
+                        ? new Date(options.scheduledEndTime)
+                        : null,
                     entityMetadata: options.entityMetadata ?? null,
                     url: `https://discord.com/events/guild-123/event-${Date.now()}`
                 });

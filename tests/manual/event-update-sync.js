@@ -64,8 +64,8 @@ async function runTest() {
             console.log('\n   [EVENT UPDATE DETECTED]');
             console.log(`   Old name: ${oldEvent?.name}`);
             console.log(`   New name: ${newEvent?.name}`);
-            console.log(`   Old start: ${oldEvent?.scheduledStartTime?.toLocaleString()}`);
-            console.log(`   New start: ${newEvent?.scheduledStartTime?.toLocaleString()}`);
+            console.log(`   Old start: ${oldEvent?.scheduledStartAt?.toLocaleString()}`);
+            console.log(`   New start: ${newEvent?.scheduledStartAt?.toLocaleString()}`);
 
             // Call our handler
             await scheduler.handleScheduledEventUpdate(oldEvent, newEvent);

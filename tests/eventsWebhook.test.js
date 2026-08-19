@@ -671,7 +671,7 @@ describe('webhook event → scheduler tick (end to end)', () => {
         // directly no longer works: the tick reconciles that field against the
         // live event before asking whether it is due, so a hand-set time the
         // event does not agree with is corrected rather than honoured.
-        scheduledEvent.scheduledStartTime = new Date(Date.now() + 3600 * 1000 - 5000);
+        scheduledEvent.scheduledStartAt = new Date(Date.now() + 3600 * 1000 - 5000);
 
         const data = scheduler.loadScheduledItems(GUILD_ID);
         expect(data.items.find((i) => i.type === 'event_reminder')).toBeTruthy();
@@ -834,7 +834,7 @@ describe('POST /api/events/update', () => {
 
         const scheduledEvent = guild.scheduledEvents.cache.get(eventId);
         expect(scheduledEvent.edit).toHaveBeenCalledTimes(1);
-        expect(new Date(scheduledEvent.scheduledStartTime).toISOString()).toBe(payload.startTime);
+        expect(scheduledEvent.scheduledStartAt.toISOString()).toBe(payload.startTime);
         expect(scheduledEvent.description).toBe('moved');
 
         const items = scheduler.loadScheduledItems(GUILD_ID).items;

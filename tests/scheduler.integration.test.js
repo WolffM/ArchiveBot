@@ -387,7 +387,7 @@ describe('Scheduler Integration Tests', () => {
         }
 
         it('does not fire a reminder for an event that moved out from under it', async () => {
-            liveEvent({ scheduledStartTime: new Date(Date.now() + 25 * HOUR) });
+            liveEvent({ scheduledStartAt: new Date(Date.now() + 25 * HOUR) });
 
             const item = await tickWith({
                 type: 'event_reminder',
@@ -406,7 +406,7 @@ describe('Scheduler Integration Tests', () => {
         it('fires at the new time, under the new name', async () => {
             liveEvent({
                 name: 'Big Walk #3 (moved)',
-                scheduledStartTime: new Date(Date.now() + HOUR - 5000)
+                scheduledStartAt: new Date(Date.now() + HOUR - 5000)
             });
 
             const item = await tickWith({
@@ -424,7 +424,7 @@ describe('Scheduler Integration Tests', () => {
         });
 
         it('retires a reminder whose event moved to a start already past', async () => {
-            liveEvent({ scheduledStartTime: new Date(Date.now() - HOUR) });
+            liveEvent({ scheduledStartAt: new Date(Date.now() - HOUR) });
 
             const item = await tickWith({
                 type: 'event_reminder',
@@ -440,7 +440,7 @@ describe('Scheduler Integration Tests', () => {
         it('drops a cancelled event instead of announcing it', async () => {
             liveEvent({
                 status: 4, // GuildScheduledEventStatus.Canceled
-                scheduledStartTime: new Date(Date.now() + HOUR)
+                scheduledStartAt: new Date(Date.now() + HOUR)
             });
 
             const item = await tickWith({
@@ -485,11 +485,11 @@ describe('Scheduler Integration Tests', () => {
 
         it('leaves a recurring item on its own sequence', async () => {
             // A recurring event rides a Discord-native recurrence rule, so the
-            // live scheduledStartTime is the NEXT occurrence while our
+            // live scheduledStartAt is the NEXT occurrence while our
             // triggerAt walks its own. Reconciling one to the other would drag
             // every future occurrence back onto whichever Discord points at.
             const nextWeek = new Date(Date.now() + 7 * 24 * HOUR);
-            liveEvent({ scheduledStartTime: nextWeek });
+            liveEvent({ scheduledStartAt: nextWeek });
 
             const ownTime = new Date(Date.now() + 3 * 24 * HOUR).toISOString();
             const item = await tickWith({
@@ -504,7 +504,7 @@ describe('Scheduler Integration Tests', () => {
 
         it('pays for a definitive read only when the item is about to speak', async () => {
             const start = new Date(Date.now() + 5 * HOUR);
-            liveEvent({ scheduledStartTime: start });
+            liveEvent({ scheduledStartAt: start });
             const fetchSpy = jest.spyOn(mockGuild.scheduledEvents, 'fetch');
 
             // Not due: the gateway cache is good enough, and forcing an API
@@ -527,7 +527,7 @@ describe('Scheduler Integration Tests', () => {
 
         it('picks up a rename without touching the schedule', async () => {
             const start = new Date(Date.now() + 5 * HOUR);
-            liveEvent({ name: 'Renamed In Discord', scheduledStartTime: start });
+            liveEvent({ name: 'Renamed In Discord', scheduledStartAt: start });
 
             const item = await tickWith({
                 type: 'event',
@@ -540,7 +540,7 @@ describe('Scheduler Integration Tests', () => {
 
         it('does not clear a stored location for an event that carries no metadata', async () => {
             const start = new Date(Date.now() + 5 * HOUR);
-            liveEvent({ scheduledStartTime: start, entityMetadata: null });
+            liveEvent({ scheduledStartAt: start, entityMetadata: null });
 
             const item = await tickWith({
                 type: 'event',
