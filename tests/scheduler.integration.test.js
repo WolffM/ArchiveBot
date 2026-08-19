@@ -9,7 +9,8 @@ const {
     createMockGuild,
     createMockChannel,
     createMockInteraction,
-    createMockCollection
+    createMockCollection,
+    createMockScheduledEvent
 } = require('./mocks/discord');
 
 // Mock discord.js enums before requiring scheduler
@@ -27,6 +28,12 @@ jest.mock('discord.js', () => ({
         Weekly: 1,
         Monthly: 2,
         Yearly: 3
+    },
+    GuildScheduledEventStatus: {
+        Scheduled: 1,
+        Active: 2,
+        Completed: 3,
+        Canceled: 4
     }
 }));
 
@@ -331,6 +338,217 @@ describe('Scheduler Integration Tests', () => {
                 `https://discord.com/events/test-guild-integration/${eventItem.scheduledEventId}`
             );
             expect(sendCall.content).not.toContain('undefined');
+        });
+    });
+
+    // ── Reconciling items against the live Discord event ─────────────────────
+    //
+    // The gap these cover: an item is a copy of the event, refreshed only by
+    // the guildScheduledEventUpdate gateway event, which needs the bot to be
+    // connected at the instant of the edit. It restarts on every deploy. An
+    // event moved, renamed or cancelled inside one of those windows used to
+    // leave the item describing something that no longer exists — and it fired
+    // anyway, at the old time, under the old name, pinging everyone who had
+    // marked interest. That shipped: a reminder went out for "Big Walk #3" an
+    // hour before a time the event had stopped claiming.
+    describe('reconcileWithScheduledEvent', () => {
+        const GUILD = 'test-guild-integration';
+        const HOUR = 3600 * 1000;
+
+        /** Put a live scheduled event on the guild and return it. */
+        function liveEvent(overrides = {}) {
+            const event = createMockScheduledEvent({
+                id: 'evt-live',
+                name: 'Big Walk #3',
+                ...overrides
+            });
+            mockGuild.scheduledEvents.cache.set(event.id, event);
+            return event;
+        }
+
+        /** Store one item and hand it back after the tick has run. */
+        async function tickWith(item) {
+            const data = scheduler.loadScheduledItems(GUILD);
+            data.items.push({
+                id: 1,
+                guildId: GUILD,
+                channelId: mockChannel.id,
+                creatorId: 'creator-1',
+                scheduledEventId: 'evt-live',
+                eventName: 'Big Walk #3',
+                recurring: null,
+                createdDate: new Date().toISOString(),
+                active: true,
+                ...item
+            });
+            scheduler.saveScheduledItems(GUILD, data);
+            await scheduler.checkAllItems();
+            return scheduler.loadScheduledItems(GUILD).items.find((i) => i.id === 1);
+        }
+
+        it('does not fire a reminder for an event that moved out from under it', async () => {
+            liveEvent({ scheduledStartTime: new Date(Date.now() + 25 * HOUR) });
+
+            const item = await tickWith({
+                type: 'event_reminder',
+                remindBeforeMs: HOUR,
+                // What the item still believes: the event started an hour ago,
+                // so its advance warning is overdue and would go out this tick.
+                triggerAt: new Date(Date.now() - HOUR).toISOString()
+            });
+
+            expect(mockChannel.send).not.toHaveBeenCalled();
+            // Re-pointed at the live start minus its lead, and still armed.
+            expect(item.active).toBe(true);
+            expect(new Date(item.triggerAt).getTime()).toBeCloseTo(Date.now() + 24 * HOUR, -4);
+        });
+
+        it('fires at the new time, under the new name', async () => {
+            liveEvent({
+                name: 'Big Walk #3 (moved)',
+                scheduledStartTime: new Date(Date.now() + HOUR - 5000)
+            });
+
+            const item = await tickWith({
+                type: 'event_reminder',
+                remindBeforeMs: HOUR,
+                triggerAt: new Date(Date.now() + 20 * HOUR).toISOString()
+            });
+
+            expect(mockChannel.send).toHaveBeenCalledTimes(1);
+            const sent = mockChannel.send.mock.calls[0][0];
+            expect(sent.content).toContain('Big Walk #3 (moved)');
+            expect(sent.content).toContain('starts in 1h');
+            expect(item.eventName).toBe('Big Walk #3 (moved)');
+            expect(item.active).toBe(false);
+        });
+
+        it('retires a reminder whose event moved to a start already past', async () => {
+            liveEvent({ scheduledStartTime: new Date(Date.now() - HOUR) });
+
+            const item = await tickWith({
+                type: 'event_reminder',
+                remindBeforeMs: HOUR,
+                triggerAt: new Date(Date.now() - 2 * HOUR).toISOString()
+            });
+
+            // An advance warning for something that already began is not one.
+            expect(mockChannel.send).not.toHaveBeenCalled();
+            expect(item.active).toBe(false);
+        });
+
+        it('drops a cancelled event instead of announcing it', async () => {
+            liveEvent({
+                status: 4, // GuildScheduledEventStatus.Canceled
+                scheduledStartTime: new Date(Date.now() + HOUR)
+            });
+
+            const item = await tickWith({
+                type: 'event',
+                triggerAt: new Date(Date.now() - 1000).toISOString()
+            });
+
+            expect(mockChannel.send).not.toHaveBeenCalled();
+            expect(item.active).toBe(false);
+        });
+
+        it('drops a deleted event instead of reminding about it', async () => {
+            // Nothing added to the cache: the mock's fetch answers 10070, the
+            // same code Discord returns for an event that is gone. The reminder
+            // path used to swallow that and post regardless.
+            const item = await tickWith({
+                type: 'event_reminder',
+                remindBeforeMs: HOUR,
+                scheduledEventId: 'evt-deleted',
+                triggerAt: new Date(Date.now() - 1000).toISOString()
+            });
+
+            expect(mockChannel.send).not.toHaveBeenCalled();
+            expect(item.active).toBe(false);
+        });
+
+        it('still fires when the event merely could not be read', async () => {
+            // A rate limit is not evidence that anything changed, and dropping
+            // a real reminder over one is the worse failure.
+            mockGuild.scheduledEvents.fetch = jest.fn().mockRejectedValue(
+                Object.assign(new Error('rate limited'), { status: 429 })
+            );
+
+            const item = await tickWith({
+                type: 'event',
+                triggerAt: new Date(Date.now() - 1000).toISOString()
+            });
+
+            expect(mockChannel.send).toHaveBeenCalledTimes(1);
+            expect(item.active).toBe(false); // fired, one-time
+        });
+
+        it('leaves a recurring item on its own sequence', async () => {
+            // A recurring event rides a Discord-native recurrence rule, so the
+            // live scheduledStartTime is the NEXT occurrence while our
+            // triggerAt walks its own. Reconciling one to the other would drag
+            // every future occurrence back onto whichever Discord points at.
+            const nextWeek = new Date(Date.now() + 7 * 24 * HOUR);
+            liveEvent({ scheduledStartTime: nextWeek });
+
+            const ownTime = new Date(Date.now() + 3 * 24 * HOUR).toISOString();
+            const item = await tickWith({
+                type: 'event',
+                recurring: '1w',
+                triggerAt: ownTime
+            });
+
+            expect(item.triggerAt).toBe(ownTime);
+            expect(mockChannel.send).not.toHaveBeenCalled();
+        });
+
+        it('pays for a definitive read only when the item is about to speak', async () => {
+            const start = new Date(Date.now() + 5 * HOUR);
+            liveEvent({ scheduledStartTime: start });
+            const fetchSpy = jest.spyOn(mockGuild.scheduledEvents, 'fetch');
+
+            // Not due: the gateway cache is good enough, and forcing an API
+            // read for every item on every 60s tick is not.
+            await tickWith({ type: 'event', triggerAt: start.toISOString() });
+            expect(fetchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ force: false })
+            );
+
+            fetchSpy.mockClear();
+            const data = scheduler.loadScheduledItems(GUILD);
+            data.items.find((i) => i.id === 1).triggerAt = new Date(Date.now() - 1000).toISOString();
+            scheduler.saveScheduledItems(GUILD, data);
+            await scheduler.checkAllItems();
+
+            expect(fetchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ guildScheduledEvent: 'evt-live', force: true })
+            );
+        });
+
+        it('picks up a rename without touching the schedule', async () => {
+            const start = new Date(Date.now() + 5 * HOUR);
+            liveEvent({ name: 'Renamed In Discord', scheduledStartTime: start });
+
+            const item = await tickWith({
+                type: 'event',
+                triggerAt: start.toISOString()
+            });
+
+            expect(item.eventName).toBe('Renamed In Discord');
+            expect(item.triggerAt).toBe(start.toISOString());
+        });
+
+        it('does not clear a stored location for an event that carries no metadata', async () => {
+            const start = new Date(Date.now() + 5 * HOUR);
+            liveEvent({ scheduledStartTime: start, entityMetadata: null });
+
+            const item = await tickWith({
+                type: 'event',
+                location: 'https://hadoku.me/meet?e=qqmt7yfkkhh2',
+                triggerAt: start.toISOString()
+            });
+
+            expect(item.location).toBe('https://hadoku.me/meet?e=qqmt7yfkkhh2');
         });
     });
 

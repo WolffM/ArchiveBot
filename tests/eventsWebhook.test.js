@@ -666,11 +666,15 @@ describe('webhook event → scheduler tick (end to end)', () => {
         const scheduledEvent = guild.scheduledEvents.cache.get(res.body.eventId);
         for (const id of subscribers) scheduledEvent._addSubscriber(id);
 
-        // Bring the reminder due instead of waiting an hour for it.
+        // Bring the reminder due the way reality does — by moving the event
+        // itself to just under an hour out. Editing the item's triggerAt
+        // directly no longer works: the tick reconciles that field against the
+        // live event before asking whether it is due, so a hand-set time the
+        // event does not agree with is corrected rather than honoured.
+        scheduledEvent.scheduledStartTime = new Date(Date.now() + 3600 * 1000 - 5000);
+
         const data = scheduler.loadScheduledItems(GUILD_ID);
-        const reminder = data.items.find((i) => i.type === 'event_reminder');
-        expect(reminder).toBeTruthy();
-        reminder.triggerAt = new Date(Date.now() - 1000).toISOString();
+        expect(data.items.find((i) => i.type === 'event_reminder')).toBeTruthy();
         // Keep the event item itself out of this tick.
         data.items.find((i) => i.type === 'event').active = false;
         scheduler.saveScheduledItems(GUILD_ID, data);

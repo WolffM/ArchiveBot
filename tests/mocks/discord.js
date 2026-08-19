@@ -199,6 +199,11 @@ function createMockScheduledEvent(overrides = {}) {
         description: 'Test event description',
         scheduledStartTime: new Date(Date.now() + 3600000),
         scheduledEndTime: null,
+        // External events carry their location here — the field the scheduler
+        // reconciles item.location against. Absent on voice/stage events, so
+        // an override of null is a meaningful thing for a test to pass.
+        entityMetadata: null,
+        status: 1, // GuildScheduledEventStatus.Scheduled
         url: 'https://discord.com/events/guild-123/event-123',
         fetchSubscribers: jest.fn().mockResolvedValue(subscribers),
         delete: jest.fn().mockResolvedValue(undefined),
@@ -293,12 +298,21 @@ function createMockGuild(overrides = {}) {
                     description: options.description,
                     scheduledStartTime: options.scheduledStartTime,
                     scheduledEndTime: options.scheduledEndTime,
+                    entityMetadata: options.entityMetadata ?? null,
                     url: `https://discord.com/events/guild-123/event-${Date.now()}`
                 });
                 scheduledEventsCache.set(event.id, event);
                 return Promise.resolve(event);
             }),
-            fetch: jest.fn().mockImplementation((eventId) => {
+            // Accepts either shape the real manager resolves: a bare id, or
+            // an options object naming one. The scheduler passes the object
+            // form so it can ask for a forced read, and a mock that only knew
+            // the string answered every one of those with a 10070.
+            fetch: jest.fn().mockImplementation((options) => {
+                const eventId =
+                    typeof options === 'string'
+                        ? options
+                        : (options?.guildScheduledEvent ?? options?.id);
                 const event = scheduledEventsCache.get(eventId);
                 if (event) return Promise.resolve(event);
                 const error = new Error('Unknown Guild Scheduled Event');
