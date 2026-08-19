@@ -1,153 +1,116 @@
 /**
- * Comprehensive logging utility for ArchiveBot
- * Provides consistent, structured logging with timestamps and result states
+ * ArchiveBot's logging surface, on top of the ecosystem logger.
+ *
+ * This used to be a self-contained JSON logger. It emitted
+ * `{"timestamp":…,"level":…,"module":…,"action":…,"status":…}` per line, which
+ * was internally consistent and invisible to everything else: the hadoku
+ * convention is a flat `key=val` line carrying `event=<name>` for terminal
+ * failures, so `grep event=` across every service log finds every backend
+ * failure — and it found nothing from this bot.
+ *
+ * The call-site surface is deliberately unchanged. `createLogger(module)` and
+ * its six methods keep their exact signatures, so the 11 import sites and the
+ * several hundred calls behind them did not all have to move in one commit.
+ * That is the same adapter shape `@wolffm/worker-utils` uses to sit its worker
+ * call sites on `@wolffm/logger/worker`.
+ *
+ * ESM from CommonJS: `@wolffm/logger` is `"type": "module"` with no `require`
+ * condition, and this codebase is CommonJS. `require()` of a synchronous ESM
+ * graph is supported unflagged from Node 22.12, and PM2 runs this bot on
+ * /usr/local/bin/node v22.14 — verified against that binary specifically, not
+ * against whatever `node` resolves to on a shell PATH.
+ *
+ * NOT wired: the logger's optional telemetrySink, which would mirror every
+ * ERROR and WARN into monitoring-api. lib/ledger.js already reports failures
+ * there under a curated `alert.archivebot.*` namespace, chosen so the alerts
+ * domain carries missed notifications and not the routine 4xx a webhook
+ * answers all day. Turning the sink on as well would both duplicate those and
+ * drown them.
  */
 
-const LOG_LEVELS = {
-    DEBUG: 0,
-    INFO: 1,
-    WARN: 2,
-    ERROR: 3
-};
+const { createServerLogger } = require('@wolffm/logger/server');
 
-// Current log level (can be configured via environment variable)
-const currentLevel = LOG_LEVELS[process.env.LOG_LEVEL?.toUpperCase()] ?? LOG_LEVELS.INFO;
+const LEVELS = ['debug', 'info', 'warn', 'error'];
 
 /**
- * Format timestamp for log entries
- * @returns {string} Formatted timestamp
+ * LOG_LEVEL has always been documented and used uppercase here; the shared
+ * logger takes lowercase. Anything unrecognised falls back to info rather than
+ * silencing the service, which is what an unvalidated pass-through would risk.
  */
-function getTimestamp() {
-    return new Date().toISOString();
+function resolveLevel(raw) {
+    const level = String(raw || '').toLowerCase();
+    return LEVELS.includes(level) ? level : 'info';
 }
 
 /**
- * Format a log message with consistent structure
- * @param {string} level - Log level
- * @param {string} module - Module name
- * @param {string} action - Action being performed
- * @param {string} status - Result status (SUCCESS, FAILED, etc.)
- * @param {Object} details - Additional details
- * @returns {string} Formatted log message
+ * Action names in this codebase are a mix of camelCase (`fireItem`) and
+ * snake_case (`event_create_failed`) — both were only ever a JSON field, so
+ * nothing forced a choice. As `event=<name>` they are a grep target shared with
+ * every other service, all of which use snake_case, so they are normalised.
+ * Nothing greps the old names: until now there was no `event=` token to grep.
  */
-function formatLog(level, module, action, status, details = {}) {
-    const base = {
-        timestamp: getTimestamp(),
-        level,
-        module,
-        action,
-        status
-    };
-
-    // Add non-empty details
-    if (Object.keys(details).length > 0) {
-        Object.assign(base, details);
-    }
-
-    return JSON.stringify(base);
+function toEventName(action) {
+    return String(action)
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[\s-]+/g, '_')
+        .toLowerCase();
 }
 
-/**
- * Log a debug message
- * @param {string} module - Module name
- * @param {string} action - Action being performed
- * @param {Object} details - Additional details
- */
-function debug(module, action, details = {}) {
-    if (currentLevel <= LOG_LEVELS.DEBUG) {
-        console.log(formatLog('DEBUG', module, action, 'DEBUG', details));
-    }
-}
+const base = createServerLogger({
+    service: 'archive-bot',
+    minLevel: resolveLevel(process.env.LOG_LEVEL),
+});
 
 /**
- * Log an info message
- * @param {string} module - Module name
- * @param {string} action - Action being performed
- * @param {Object} details - Additional details
- */
-function info(module, action, details = {}) {
-    if (currentLevel <= LOG_LEVELS.INFO) {
-        console.log(formatLog('INFO', module, action, 'INFO', details));
-    }
-}
-
-/**
- * Log a success message
- * @param {string} module - Module name
- * @param {string} action - Action completed
- * @param {Object} details - Additional details
- */
-function success(module, action, details = {}) {
-    if (currentLevel <= LOG_LEVELS.INFO) {
-        console.log(formatLog('INFO', module, action, 'SUCCESS', details));
-    }
-}
-
-/**
- * Log a failure message
- * @param {string} module - Module name
- * @param {string} action - Action that failed
- * @param {Object} details - Additional details (should include error info)
- */
-function fail(module, action, details = {}) {
-    if (currentLevel <= LOG_LEVELS.INFO) {
-        console.log(formatLog('INFO', module, action, 'FAILED', details));
-    }
-}
-
-/**
- * Log a warning message
- * @param {string} module - Module name
- * @param {string} action - Action being performed
- * @param {Object} details - Additional details
- */
-function warn(module, action, details = {}) {
-    if (currentLevel <= LOG_LEVELS.WARN) {
-        console.warn(formatLog('WARN', module, action, 'WARNING', details));
-    }
-}
-
-/**
- * Log an error message
- * @param {string} module - Module name
- * @param {string} action - Action that caused error
- * @param {Error|string} error - Error object or message
- * @param {Object} details - Additional details
- */
-function error(module, action, error, details = {}) {
-    if (currentLevel <= LOG_LEVELS.ERROR) {
-        const errorDetails = {
-            ...details,
-            error: error instanceof Error ? error.message : error,
-            stack: error instanceof Error ? error.stack : undefined
-        };
-        console.error(formatLog('ERROR', module, action, 'ERROR', errorDetails));
-    }
-}
-
-/**
- * Create a scoped logger for a specific module
- * @param {string} moduleName - Module name to scope to
- * @returns {Object} Scoped logger functions
+ * A module-scoped logger. `module` becomes a nested service label, so lines
+ * read `[archive-bot/scheduler]` rather than carrying the module as a field.
+ *
+ * The status values the old format carried are preserved as context rather
+ * than dropped: SUCCESS and FAILED were the only way to tell an action that
+ * completed from one that was refused, and both render at info.
  */
 function createLogger(moduleName) {
+    const log = base.child(moduleName);
+
     return {
-        debug: (action, details) => debug(moduleName, action, details),
-        info: (action, details) => info(moduleName, action, details),
-        success: (action, details) => success(moduleName, action, details),
-        fail: (action, details) => fail(moduleName, action, details),
-        warn: (action, details) => warn(moduleName, action, details),
-        error: (action, err, details) => error(moduleName, action, err, details)
+        debug: (action, details = {}) => log.debug(action, details),
+        info: (action, details = {}) => log.info(action, details),
+        success: (action, details = {}) => log.info(action, { ...details, status: 'SUCCESS' }),
+
+        /**
+         * A REFUSED request — permission denied, unparseable input. Every
+         * caller uses it that way, so it stays at info: it is the bot behaving
+         * correctly, not an operational problem.
+         */
+        fail: (action, details = {}) => log.info(action, { ...details, status: 'FAILED' }),
+
+        warn: (action, details = {}) => log.warn(action, details),
+
+        /**
+         * A terminal failure, so it goes out as `event=<name>` at ERROR — the
+         * convention the rest of the ecosystem greps for.
+         *
+         * `err` is Error | string | null; several call sites pass null where
+         * there is no throw to report, and a null must not become the string
+         * "null" in the line.
+         */
+        error: (action, err, details = {}) => {
+            const context = { ...details };
+            if (err instanceof Error) {
+                context.error = err.message;
+                // Flattened to one physical line. The shared formatter renders
+                // context as key=val and quotes a value containing spaces, but
+                // it does not escape newlines — so a raw stack would push
+                // `event=<name>` onto the last frame and split one entry across
+                // twenty lines. The old JSON format escaped them to \n and so
+                // was single-line too; this keeps that, readably.
+                if (err.stack) context.stack = err.stack.replace(/\s*\n\s*/g, ' | ');
+            } else if (err !== null && err !== undefined) {
+                context.error = String(err);
+            }
+            log.event(toEventName(action), context);
+        },
     };
 }
 
-module.exports = {
-    debug,
-    info,
-    success,
-    fail,
-    warn,
-    error,
-    createLogger,
-    LOG_LEVELS
-};
+module.exports = { createLogger, toEventName };

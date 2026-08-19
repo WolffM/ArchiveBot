@@ -56,13 +56,14 @@ Telemetry (see **Notifications & telemetry**):
 Other:
 - `SCRAPE_API_URL` — defaults to `https://scraper.hadoku.me`
 - `SCRAPE_SERVICE_KEY` — service key for that API
-- `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR`, defaults to `INFO`
+- `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR` (case-insensitive), defaults to `INFO`.
+  An unrecognised value falls back to `INFO` rather than silencing the service.
 
 GitHub secret: `HADOKU_SITE_TOKEN` (deploy workflow)
 
 ## Notifications & telemetry
 
-Two conventions, both ecosystem-wide. Follow them when adding a send site.
+Three conventions, all ecosystem-wide. Follow them when adding a send site.
 
 **Mentions are opt-in.** `utils/clientOptions.js` sets a client-level
 `allowedMentions: { parse: [] }`, so nothing pings by default. This bot relays
@@ -86,6 +87,35 @@ Do NOT alert on a refused request — a bad signature or an unparseable payload 
 the caller's bug, already answered with a 4xx, and alerting on it drowns the real
 thing. Both mirrors are fire-and-forget: telemetry must never delay or fail a
 notification.
+
+**Logs are `key=val`, and failures carry `event=`.** `utils/logger.js` is a thin
+adapter over `@wolffm/logger/server`, the shared ecosystem logger. Call sites keep
+`createLogger(module)` and its six methods; the module becomes a nested service
+label:
+
+```
+[2026-08-19T20:10:19.461Z] [INFO]  [archive-bot/bot]       guilds=4 status=SUCCESS ready
+[2026-08-19T20:06:58.577Z] [ERROR] [archive-bot/scheduler] itemId=15 error="…" event=fire_item
+```
+
+- `log.error(action, err, details)` emits `event=<action>` at ERROR — snake_cased,
+  because that token is a grep target shared with every other hadoku service.
+  `grep event=` across all service logs finds every backend failure.
+- `log.fail()` is a REFUSED request (permission denied, bad input), not an
+  operational failure. It stays at INFO carrying `status=FAILED`.
+- `log.success()` carries `status=SUCCESS`. Both survive from the old JSON format,
+  where status was the only way to tell them apart.
+
+Two things to know when touching this. `@wolffm/logger` is ESM-only and this
+codebase is CommonJS — `require()` of it works because Node 22.12+ supports it and
+PM2 runs the bot on node 22.14, so **verify against `/usr/local/bin/node`, not
+whatever `node` is on your PATH**. And Jest's CJS runtime *cannot* require ESM,
+which is the only reason `babel.config.js` and the `transformIgnorePatterns` entry
+in `jest.config.js` exist.
+
+The logger's optional `telemetrySink` is deliberately NOT wired: `lib/ledger.js`
+above already reports failures to monitoring-api under a curated namespace, and
+mirroring every ERROR as well would both duplicate those and bury them.
 
 ## Dev commands
 
