@@ -160,4 +160,33 @@ describe('tasklist.js', () => {
             expect(result).toBe(1);
         });
     });
+
+    describe('issue reproduction: scrubbed task', () => {
+        test('done command with a plain-text description should create and complete a new task', async () => {
+            fs.readFileSync.mockReturnValue(JSON.stringify({ tasks: [] }));
+
+            const interaction = {
+                commandName: 'done',
+                guild: { id: 'guild-123' },
+                user: { id: 'user-1' },
+                channel: {},
+                options: {
+                    getString: jest.fn((key) => key === 'name' ? 'Fix deployment docs' : null)
+                },
+                deferred: false,
+                replied: false,
+                deferReply: jest.fn().mockResolvedValue(undefined),
+                editReply: jest.fn().mockResolvedValue(undefined),
+                reply: jest.fn().mockResolvedValue(undefined)
+            };
+
+            await tasklist.handleSlashCommand(interaction);
+
+            expect(interaction.editReply).not.toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: expect.stringContaining('No valid task IDs provided.')
+                })
+            );
+        });
+    });
 });
