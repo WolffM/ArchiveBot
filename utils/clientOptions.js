@@ -13,7 +13,15 @@ const clientOptions = {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.GuildScheduledEvents
+        GatewayIntentBits.GuildScheduledEvents,
+        // PRIVILEGED. Required for `guildMemberAdd`, which is the only signal
+        // that a meeting-space invite was used — without it the event never
+        // fires, every guest lands roleless in a guild they cannot see, and
+        // nothing errors. Must ALSO be toggled on in the Discord Developer
+        // Portal (Bot → Privileged Gateway Intents → Server Members); the
+        // portal switch and this list are two independent gates and the bot
+        // fails to log in if this is declared while the portal is off.
+        GatewayIntentBits.GuildMembers
     ],
     // REQUIRED by the GuildMessageReactions intent above — not optional tuning.
     //

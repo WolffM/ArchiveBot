@@ -3,6 +3,7 @@ const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
 const { startWebhookServer } = require('./lib/webhookServer');
+const meetingSpaceReaper = require('./lib/meetingSpaceReaper');
 const { createLogger } = require('./utils/logger');
 const { clientOptions } = require('./utils/clientOptions');
 require('dotenv').config();
@@ -192,6 +193,28 @@ client.once('clientReady', async () => {
     // (hadoku-scrape → ArchiveBot → Discord). Silently skipped if the
     // PICKLEBALL_WEBHOOK_SECRET / PICKLEBALL_CHANNEL_ID env vars are absent.
     global.__webhookServer = startWebhookServer({ discordClient: client });
+
+    // Seed the invite-use cache. The invite→role binding works by DIFFING use
+    // counts across a join, so with no prior snapshot the first guest of every
+    // boot would be unattributable and land roleless in a guild they cannot
+    // see. Best-effort per guild: one guild missing MANAGE_GUILD must not stop
+    // the others being cached.
+    for (const guild of client.guilds.cache.values()) {
+        await meetingSpaceReaper.cacheGuildInvites(guild);
+    }
+});
+
+// Meeting-space invite binding. Discord invites cannot carry a role, so the
+// only way to know which invite a member used is to diff invite use counts on
+// join. handleMemberAdd refuses to guess when the signal is ambiguous — an
+// unattributed join leaves the member roleless, which is far better than
+// dropping a stranger into someone else's private space.
+client.on('guildMemberAdd', async member => {
+    try {
+        await meetingSpaceReaper.handleMemberAdd(member);
+    } catch (err) {
+        log.error('guildMemberAdd', err, { guildId: member.guild?.id });
+    }
 });
 
 client.on('interactionCreate', async interaction => {
