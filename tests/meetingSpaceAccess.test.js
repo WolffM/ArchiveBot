@@ -12,6 +12,7 @@
  * manage a channel you cannot see. Only an explicit overwrite does.
  */
 
+const { PermissionsBitField } = require('discord.js');
 const { handleSpaceProvision } = require('../lib/meetingSpace');
 const store = require('../lib/meetingSpaceStore');
 
@@ -68,18 +69,22 @@ describe('space category permissions', () => {
         );
     }
 
-    it('grants the BOT explicit access, or teardown is impossible', async () => {
+    it('grants the BOT exactly ViewChannel + ManageChannels (+ send/connect)', async () => {
         const res = await provision('k-bot-access');
         expect(res.status).toBe(200);
 
         const botOverwrite = capture.overwrites.find((o) => o.id === BOT_ID);
         expect(botOverwrite).toBeDefined();
-        // ViewChannel is the one that matters: without it Discord refuses every
-        // later manage/delete call on this category with `Missing Access`.
-        expect(botOverwrite.allow).toEqual(
-            expect.arrayContaining([expect.anything()])
-        );
-        expect(botOverwrite.type).toBeDefined();
+
+        // BOTH directions are real failures, each found in production:
+        //   without ViewChannel   -> every revoke fails `Missing Access` and
+        //                            the space becomes undeletable
+        //   with ManageRoles      -> every PROVISION fails 50013, because
+        //                            Discord refuses an overwrite granting
+        //                            MANAGE_ROLES to a channel being created
+        expect(botOverwrite.allow).toContain(PermissionsBitField.Flags.ViewChannel);
+        expect(botOverwrite.allow).toContain(PermissionsBitField.Flags.ManageChannels);
+        expect(botOverwrite.allow).not.toContain(PermissionsBitField.Flags.ManageRoles);
     });
 
     it('still denies @everyone, so the space stays private', async () => {
