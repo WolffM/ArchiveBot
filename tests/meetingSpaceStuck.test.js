@@ -138,6 +138,19 @@ describe('teardown recovery — wearing the guest role', () => {
         expect(out.deleted).toBe(false);
         expect(guild.members.me.roles.add).not.toHaveBeenCalled();
     });
+
+    // `permanent` is the licence to stop retrying, so it must be issued only to
+    // a failure that provably cannot heal.
+    it('marks only an unrecoverable Missing Access as permanent', async () => {
+        const unrecoverable = await teardownSpace(makeGuild({ recoverable: false }), record());
+        expect(unrecoverable.permanent).toBe(true);
+
+        const guild = makeGuild({ recoverable: true });
+        guild._category.delete = jest.fn().mockRejectedValue(new Error('Service Unavailable'));
+        const transient = await teardownSpace(guild, record());
+        expect(transient.deleted).toBe(false);
+        expect(transient.permanent).toBe(false);
+    });
 });
 
 describe('sweep parking — a permanent failure must go quiet', () => {
@@ -165,6 +178,28 @@ describe('sweep parking — a permanent failure must go quiet', () => {
         expect(summary.stuck).toBe(1);
         expect(summary.failed).toBe(0);
         expect(store.findExpired(GUILD_ID)).toHaveLength(0);
+    });
+
+    // The daily job runs three attempts about three minutes apart, so a short
+    // Discord outage can span all of them. Parking on the count alone would
+    // silence an alarm for a space that was going to heal by itself.
+    it('never parks a transient failure, however often it recurs', async () => {
+        store.upsert(GUILD_ID, record());
+
+        const flaky = () => {
+            const guild = makeGuild({ recoverable: true });
+            guild._category.delete = jest.fn().mockRejectedValue(new Error('Service Unavailable'));
+            return guild;
+        };
+
+        let summary;
+        for (let i = 0; i < 6; i++) summary = await sweep(flaky());
+
+        expect(summary.stuck).toBe(0);
+        expect(summary.failed).toBe(1);
+        // Still queued and still failing the job, which is the point.
+        expect(store.findExpired(GUILD_ID)).toHaveLength(1);
+        expect(store.findBySpaceId(GUILD_ID, 'stuck1').teardownAttempts).toBe(6);
     });
 
     // The whole reason `stuck` is not `!active`: an inactive record with live
