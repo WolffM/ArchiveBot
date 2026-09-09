@@ -1,0 +1,176 @@
+name: Auto-update @wolffm packages
+
+# NO `schedule:` TRIGGER HERE — deliberate, do not add one back.
+#
+# The daily safety net lives in hadoku_site's cron-worker, where a Temporal
+# schedule fires ON TIME: `services/cron-worker/profiles.json` -> repo-sync
+# profile (13:00 UTC / 06:00 Pacific, the last daily profile) -> tail job
+# `ci:wolffm-fanout` -> `services/mgmt-api/src/routes/jobs/wolffm-fanout.ts`,
+# which dispatches `wolffm_published` to every consumer in the fleet roster.
+# That job throws on a non-204, so a dropped dispatch pages Discord — louder
+# than a GitHub Actions `schedule` ever is, since a failed CI fan-out only
+# emits a warning and leaves its run green.
+#
+# A GitHub Actions `schedule` is also the wrong trigger on its own merits: it
+# fires late and unpredictably (measured elsewhere in the fleet at median
+# +57min, worst +162min past the nominal slot).
+#
+# ArchiveBot carried NO update-wolffm workflow at all until 2026-09-09 — it is
+# in the fleet's wolffmConsumer roster (depends on @wolffm/logger) and every
+# `wolffm_published` dispatch sent to it was silently accepted (GitHub 204s a
+# repository_dispatch even with nothing listening) and did nothing. Found
+# while auditing the fleet for the same gap elsewhere; this file closes it.
+#
+# Fast path is unchanged: a publish still dispatches `wolffm_published`
+# immediately via hadoku_site's update-packages.yml fan-out.
+on:
+  repository_dispatch:
+    types: [wolffm_published]
+  workflow_dispatch:
+
+concurrency:
+  group: update-wolffm
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  update:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER) }}
+    timeout-minutes: 10
+    steps:
+      - name: Mark the start, so the reported duration is real
+        run: echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v6
+        with:
+          # The bot pushes straight to a protected main. The default GITHUB_TOKEN
+          # is not an admin, so its push is rejected with "protected branch hook
+          # declined" — and only when there is actually something to push, which
+          # is why this can sit green for weeks. HADOKU_SITE_TOKEN is WolffM's
+          # PAT and bypasses it. Same fix every other update-wolffm.yml in the
+          # fleet already carries.
+          token: ${{ secrets.HADOKU_SITE_TOKEN }}
+          fetch-depth: 0
+
+      - uses: WolffM/hadoku-actions/setup-pnpm@v1
+        with:
+          npm-token: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+
+      - name: Update @wolffm/* to latest (majors included)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+        run: |
+          pnpm --config.store-dir=${{ runner.tool_cache }}/pnpm-store update --latest "@wolffm/*"
+
+      # Always-latest is the policy, so "not at latest" is a failure, not a note.
+      # This runs AFTER the update above and re-reads the manifest, so it also
+      # catches an update that silently did nothing (a lost dispatch, a registry
+      # hiccup, a range pnpm declined to touch). The fan-out that triggers this
+      # workflow is best-effort; this step is what makes a missed one visible.
+      - name: Assert every @wolffm dependency is at latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+        run: |
+          node -e '
+            const {execSync}=require("child_process"), fs=require("fs");
+            const seen=new Set(); const stale=[]; const unchecked=[];
+            const manifests=execSync("git ls-files \"*package.json\"").toString().trim().split("\n");
+            for (const m of manifests) {
+              if (!m || m.includes("node_modules")) continue;
+              let pkg; try { pkg=JSON.parse(fs.readFileSync(m,"utf8")); } catch { continue; }
+              for (const field of ["dependencies","devDependencies"]) {
+                for (const [name,range] of Object.entries(pkg[field]||{})) {
+                  if (!name.startsWith("@wolffm/")) continue;
+                  // workspace: and * are not version claims — nothing to compare.
+                  const r=String(range);
+                  if (r.startsWith("workspace:") || r==="*") continue;
+                  // Key by FIELD too, not just name+manifest: a package can sit in
+                  // BOTH dependencies and devDependencies of one file with DIFFERENT
+                  // ranges, and deduping by name alone checked whichever came first
+                  // and silently skipped the stale one.
+                  const key=name+"@"+m+"#"+field; if (seen.has(key)) continue; seen.add(key);
+                  let latest; try {
+                    latest=execSync(`npm view ${name} version --registry=https://npm.pkg.github.com`,{stdio:["ignore","pipe","ignore"]}).toString().trim();
+                  } catch {
+                    // NOT `continue`. An unreachable registry is indistinguishable
+                    // from "at latest" if it is skipped, so a 401 here would make
+                    // the whole step report success while checking nothing.
+                    unchecked.push(`${name} in ${m}: could not read the registry`);
+                    continue;
+                  }
+                  const declared=(r.match(/(\d+\.\d+\.\d+)/)||[])[1];
+                  if (declared && latest && declared!==latest) {
+                    stale.push(`${name} in ${m}: declares ${r}, latest is ${latest}`);
+                  }
+                }
+              }
+            }
+            if (unchecked.length) {
+              for (const u of unchecked) console.log(`::error::${u}`);
+              console.error(`\n${unchecked.length} @wolffm package(s) could not be checked at all.`);
+              console.error("Usually the .npmrc is not in this step working directory.");
+              process.exit(1);
+            }
+            if (stale.length) {
+              for (const s of stale) console.log(`::error::${s}`);
+              console.error(`\n${stale.length} @wolffm dependency/ies are not at latest.`);
+              console.error("Every @wolffm package must track the newest version, majors included.");
+              console.error("If a major needs code changes, make them — do not pin back.");
+              process.exit(1);
+            }
+            console.log("All @wolffm dependencies are at latest.");
+          '
+
+      - name: Commit and push if changed
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "✅ No @wolffm package updates available"
+            exit 0
+          fi
+
+          git add package.json pnpm-lock.yaml
+          # --no-verify: a bot commit of dep updates needs no pre-commit hook —
+          # same rationale every other update-wolffm.yml in the fleet carries.
+          git commit --no-verify -m "chore: auto-update @wolffm/* to latest"
+
+          for i in 1 2 3; do
+            push_out=$(git push 2>&1) && rc=0 || rc=$?
+            echo "$push_out"
+            if [ "$rc" -eq 0 ]; then
+              echo "✅ Pushed"
+              exit 0
+            fi
+            # A branch-protection rejection (GH006 / "protected branch hook
+            # declined") is deterministic — rebasing and retrying cannot fix it.
+            # Name the fix and die on the first line rather than burying it under
+            # a stack of identical "race" retries.
+            if echo "$push_out" | grep -qiE "GH006|protected branch hook declined"; then
+              echo "::error::Push rejected by branch protection, not a race. The pushing credential cannot satisfy main's required checks — checkout must use a token that bypasses them (token: HADOKU_SITE_TOKEN, see the checkout step)."
+              exit 1
+            fi
+            echo "Push failed (attempt $i), rebasing..."
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort; exit 1; }
+          done
+          echo "❌ Push failed after retries"
+          exit 1
+
+      # A red run is seen by nobody unless it says so itself: nothing polls
+      # these repos. `always()` so RECOVERIES report too -- without the success
+      # side the alert state stays broken and the next real failure arrives as a
+      # suppressed reminder rather than a new alert.
+      - name: Report the outcome so a silent failure can't hide
+        if: always()
+        uses: WolffM/hadoku-actions/report-job@v1
+        with:
+          job-name: ArchiveBot:update-wolffm
+          service-key: ${{ secrets.KEY_SERVICE_ARCHIVEBOT }}
+          started-at: ${{ env.JOB_STARTED_AT }}
