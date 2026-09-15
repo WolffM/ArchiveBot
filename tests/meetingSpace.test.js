@@ -46,6 +46,57 @@ describe('validateProvisionPayload', () => {
         expect(r).toEqual({ ok: false, error });
     });
 
+    // The ceiling has to clear the FURTHEST booking a caller can make, not a
+    // round number that sounds generous. contact-api books up to 30 days out
+    // and keeps the space 8 days past the meeting; at 31 days that asked for
+    // ~38 and came back `ttl_too_long`, so the booking succeeded and the guest
+    // silently got no space.
+    it('accepts the furthest booking a caller can actually make', () => {
+        const furthest = (30 + 8) * 24 * 60 * 60 * 1000;
+        const result = validateProvisionPayload({
+            idempotencyKey: 'k1',
+            label: 'a month out',
+            timestamp: Date.now(),
+            ttlMs: furthest,
+        });
+        expect(result.ok).toBe(true);
+        expect(result.value.ttlMs).toBe(furthest);
+    });
+
+    it('carries an optional start time through, and arms nothing without one', () => {
+        const startsAt = '2026-11-18T21:45:00.000Z';
+        const withTime = validateProvisionPayload({
+            idempotencyKey: 'k2',
+            label: 'has a time',
+            timestamp: Date.now(),
+            startsAt,
+            title: 'Intro call',
+        });
+        expect(withTime.ok).toBe(true);
+        expect(withTime.value.startsAt).toBe(startsAt);
+        expect(withTime.value.title).toBe('Intro call');
+
+        // A caller with no time is the generic case, not an error.
+        const without = validateProvisionPayload({
+            idempotencyKey: 'k3',
+            label: 'no time',
+            timestamp: Date.now(),
+        });
+        expect(without.ok).toBe(true);
+        expect(without.value.startsAt).toBeNull();
+        expect(without.value.title).toBeNull();
+    });
+
+    it('rejects an unparseable start time rather than storing NaN', () => {
+        const result = validateProvisionPayload({
+            idempotencyKey: 'k4',
+            label: 'bad time',
+            timestamp: Date.now(),
+            startsAt: 'next tuesday',
+        });
+        expect(result).toEqual({ ok: false, error: 'invalid_starts_at' });
+    });
+
     it('refuses an absurd TTL rather than parking channels for a year', () => {
         const r = validateProvisionPayload({ ...envelope(), label: 'x', ttlMs: MAX_TTL_MS + 1 });
         expect(r).toEqual({ ok: false, error: 'ttl_too_long' });
