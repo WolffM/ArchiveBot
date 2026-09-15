@@ -11,6 +11,9 @@ module.exports = {
   // the second one, which silently re-ignores the file.
   transformIgnorePatterns: ['/node_modules/(?!.*@wolffm)'],
   testMatch: ['**/tests/**/*.test.js'],
+  // Runs inside each test file's own module registry, which is what makes the
+  // state root per-file. See tests/setup.stateRoot.js.
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.stateRoot.js'],
   collectCoverageFrom: [
     'lib/**/*.js',
     'utils/**/*.js',
