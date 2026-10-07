@@ -1,0 +1,4 @@
+{
+  "//": "Loaded by ../hadoku_site/scripts/secrets/dev-vault.mjs. Names map local env var -> vault item. HADOKU_NPM_READ_TOKEN is here so this repo's service key is granted it: CI reads it from the vault via hadoku-actions/setup-pnpm vault-key.",
+  "HADOKU_NPM_READ_TOKEN": "HADOKU_NPM_READ_TOKEN"
+}
