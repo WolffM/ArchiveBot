@@ -22,7 +22,7 @@ function makeGuild({ categoryThrows = null, deleted = [] } = {}) {
     });
     return {
         id: 'g-cascade',
-        ownerId: 'owner',
+        ownerId: '100000000000000001', // Discord snowflake of the guild owner
         members: { fetch: jest.fn().mockResolvedValue(null), me: null },
         channels: { fetch: jest.fn().mockImplementation(async (id) => mk(id)) },
         roles: { fetch: jest.fn().mockResolvedValue({ delete: jest.fn().mockResolvedValue() }) },
