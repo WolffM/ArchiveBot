@@ -17,45 +17,15 @@ jobs:
       - name: Mark the start, so the reported duration is real
         run: echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
 
-      - name: Trigger hadoku_site to redeploy
-        env:
-          HADOKU_SITE_TOKEN: ${{ secrets.HADOKU_SITE_TOKEN }}
-        run: |
-          echo "Requesting hadoku_site to redeploy archive-bot..."
-          echo "Commit: ${{ github.sha }}"
-
-          if [ -z "$HADOKU_SITE_TOKEN" ]; then
-            echo "❌ Error: HADOKU_SITE_TOKEN not available"
-            exit 1
-          fi
-
-          payload=$(cat <<EOF
-          {
-            "event_type": "redeploy_service",
-            "client_payload": {
-              "service": "archive-bot",
-              "sha": "${{ github.sha }}",
-              "ref": "${{ github.ref }}"
-            }
-          }
-          EOF
-          )
-
-          status_code=$(curl -sS \
-            -o /dev/null \
-            -w "%{http_code}" \
-            -X POST "https://api.github.com/repos/WolffM/hadoku_site/dispatches" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $HADOKU_SITE_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -d "$payload")
-
-          if [ "$status_code" = "204" ]; then
-            echo "✅ Notified hadoku_site to redeploy archive-bot"
-          else
-            echo "❌ Failed to notify hadoku_site (HTTP $status_code)"
-            exit 1
-          fi
+      # hadoku_site is told through mgmt-api with this repo's own service key
+      # (hadoku-actions/repo-action), so this repo holds no token that can
+      # write to hadoku_site. A refused or unanswered notify fails this job.
+      - name: Ask hadoku_site to redeploy archive-bot
+        uses: WolffM/hadoku-actions/repo-action@v1
+        with:
+          verb: notify
+          body: '{"event_type":"redeploy_service","client_payload":{"service":"archive-bot","sha":"${{ github.sha }}"}}'
+          service-key: ${{ secrets.KEY_SERVICE_ARCHIVEBOT }}
 
       # A red run is seen by nobody unless it says so itself: nothing polls
       # these repos. `always()` so RECOVERIES report too -- without the success
