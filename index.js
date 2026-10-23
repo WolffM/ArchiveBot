@@ -27,6 +27,7 @@ const commandCategories = {
     archiveserver: COMMAND_CATEGORIES.ADMIN,
     archivechannel: COMMAND_CATEGORIES.ADMIN,
     init: COMMAND_CATEGORIES.ADMIN,
+    setup: COMMAND_CATEGORIES.ADMIN,
     test: COMMAND_CATEGORIES.ADMIN,
     assign: COMMAND_CATEGORIES.ADMIN,
     permissions: COMMAND_CATEGORIES.ADMIN,
@@ -202,6 +203,16 @@ client.once('clientReady', async () => {
     for (const guild of client.guilds.cache.values()) {
         await meetingSpaceReaper.cacheGuildInvites(guild);
     }
+});
+
+// A guild the bot is invited into while running. Commands are otherwise only
+// registered on ready, so a new guild would have no /setup until the next
+// restart, and its invites would be uncached, so the first join through any of
+// them would be unattributable.
+client.on('guildCreate', async guild => {
+    log.info('guildCreate', { guildId: guild.id, guildName: guild.name });
+    await registerGuildCommands(client, guild);
+    await meetingSpaceReaper.cacheGuildInvites(guild);
 });
 
 // Meeting-space invite binding. Discord invites cannot carry a role, so the

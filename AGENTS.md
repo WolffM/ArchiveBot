@@ -46,6 +46,8 @@ whose config is missing answers 404 rather than taking the others down. With
 none configured it does not start at all.
 - `PICKLEBALL_WEBHOOK_SECRET` / `PICKLEBALL_CHANNEL_ID` — scraper waitlist callbacks
 - `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET` — HMAC for `/api/events/*` and `/api/messages/send`, shared with meet-api
+- `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes; see **cardtable guild**.
+  Unset = cardtable-signed requests 401; meet is unaffected.
 - `ARCHIVEBOT_EVENT_GUILD_ID` / `ARCHIVEBOT_EVENT_CHANNEL_ID` — where webhook-created events land and announce
 - `WEBHOOK_PORT` — defaults to 3004
 
@@ -116,6 +118,21 @@ in `jest.config.js` exist.
 The logger's optional `telemetrySink` is deliberately NOT wired: `lib/ledger.js`
 above already reports failures to monitoring-api under a curated namespace, and
 mirroring every ERROR as well would both duplicate those and bury them.
+
+## cardtable guild
+
+`/setup layout:cardtable` (admin; the guild owner always counts as admin) converges a
+guild onto hadoku-cardtable's layout: Info (#announcements, #events, both read-only),
+Table (#general, #looking-for-game, #bugs-and-feedback), Voice (Table 1, Table 2), the
+Player and Admin roles, and a permanent invite whose joins get Player. Safe to re-run;
+on failure it deletes what that run created. `lib/cardtableSetup.js`.
+
+A successful run writes `Output/{guildId}/cardtable.json`, and that file IS the binding:
+a request signed with `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` is pinned to that guild
+(another `guild_id` → 403), messages default to #announcements and event announcements
+to #events, and only that caller may send `embeds` on `/api/messages/send`
+(validated subset in `lib/messageWebhook.js` `validateEmbeds`). The setup refuses to
+bind a second guild. The same file reserves `links` for `/link` identity linking.
 
 ## Dev commands
 

@@ -348,7 +348,136 @@ function createMockGuild(overrides = {}) {
     };
 }
 
+/**
+ * A STATEFUL guild for layout tests: channels.create / roles.create /
+ * createInvite add to the caches, delete removes from them, so "run it twice"
+ * and "roll back" are observable against the guild rather than against call
+ * counts. Starts the way Discord hands a new guild over — a #general under
+ * "Text Channels" and a General voice channel under "Voice Channels".
+ *
+ * `failOn(predicate)` makes the next matching create throw, for rollback.
+ */
+function createMockLayoutGuild({ id = 'guild-layout', ownerId = '100000000000000001', botPermissions = () => true } = {}) {
+    let seq = 0;
+    const nextId = (prefix) => `${prefix}-${++seq}`;
+    const channelCache = createMockCollection();
+    const roleCache = createMockCollection();
+    const inviteList = createMockCollection();
+    let failPredicate = null;
+
+    const everyone = { id, name: '@everyone', managed: false, editable: false };
+    roleCache.set(everyone.id, everyone);
+
+    const guild = {
+        id,
+        name: 'Card Table',
+        ownerId,
+        roles: {
+            everyone,
+            cache: roleCache,
+            fetch: jest.fn(async () => roleCache),
+            create: jest.fn(async (opts) => {
+                if (failPredicate?.('role', opts)) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+                const role = {
+                    id: nextId('role'),
+                    name: opts.name,
+                    hoist: !!opts.hoist,
+                    managed: false,
+                    editable: true,
+                    permissions: opts.permissions,
+                    delete: jest.fn(async () => { roleCache.delete(role.id); }),
+                };
+                roleCache.set(role.id, role);
+                return role;
+            }),
+        },
+        channels: {
+            cache: channelCache,
+            fetch: jest.fn(async (channelId) => (channelId ? channelCache.get(channelId) : channelCache)),
+            create: jest.fn(async (opts) => {
+                if (failPredicate?.('channel', opts)) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+                return addChannel(opts);
+            }),
+        },
+        invites: {
+            fetch: jest.fn(async () => inviteList),
+        },
+        members: {
+            me: {
+                id: 'bot-user-id',
+                user: { id: 'bot-user-id', bot: true },
+                permissions: { has: jest.fn((flag) => botPermissions(flag)) },
+                roles: { cache: createMockCollection() },
+            },
+            fetchMe: jest.fn(),
+            list: createMockCollection(),
+            fetch: jest.fn(async () => guild.members.list),
+        },
+        failOn(predicate) { failPredicate = predicate; },
+        addMember(memberId, { bot = false } = {}) {
+            const roles = new Set();
+            const member = {
+                id: memberId,
+                user: { id: memberId, bot },
+                roles: {
+                    cache: { has: (rid) => roles.has(rid) },
+                    add: jest.fn(async (rid) => { roles.add(rid); }),
+                },
+            };
+            guild.members.list.set(memberId, member);
+            return member;
+        },
+        channelNamed(name) { return channelCache.find((c) => c.name === name); },
+    };
+
+    function addChannel(opts) {
+        const overwrites = new Map();
+        const channel = {
+            id: nextId('ch'),
+            name: opts.name,
+            type: opts.type,
+            topic: opts.topic ?? null,
+            parentId: opts.parent ?? null,
+            guildId: id,
+            overwrites,
+            isThread: () => false,
+            setParent: jest.fn(async (parentId) => { channel.parentId = parentId; return channel; }),
+            permissionOverwrites: {
+                edit: jest.fn(async (target, options, overwriteOptions) => {
+                    overwrites.set(target, { ...(overwrites.get(target) ?? {}), ...options, _type: overwriteOptions?.type });
+                }),
+            },
+            createInvite: jest.fn(async (inviteOpts) => {
+                if (failPredicate?.('invite', inviteOpts)) throw new Error('invite refused');
+                const code = `code${++seq}`;
+                const invite = {
+                    code,
+                    url: `https://discord.gg/${code}`,
+                    uses: 0,
+                    maxAge: inviteOpts.maxAge,
+                    maxUses: inviteOpts.maxUses,
+                    delete: jest.fn(async () => { inviteList.delete(code); }),
+                };
+                inviteList.set(code, invite);
+                return invite;
+            }),
+            delete: jest.fn(async () => { channelCache.delete(channel.id); }),
+        };
+        channelCache.set(channel.id, channel);
+        return channel;
+    }
+
+    // What Discord creates with every new guild.
+    const textCat = addChannel({ name: 'Text Channels', type: 4 });
+    addChannel({ name: 'general', type: 0, parent: textCat.id });
+    const voiceCat = addChannel({ name: 'Voice Channels', type: 4 });
+    addChannel({ name: 'General', type: 2, parent: voiceCat.id });
+
+    return guild;
+}
+
 module.exports = {
+    createMockLayoutGuild,
     createMockInteraction,
     createMockMessage,
     createMockMember,

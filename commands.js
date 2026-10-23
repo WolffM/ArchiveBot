@@ -4,6 +4,7 @@ const tasklist = require('./lib/tasklist');
 const colorroles = require('./lib/colorroles');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
+const cardtableSetup = require('./lib/cardtableSetup');
 
 function createCommandsList() {
     return {
@@ -143,6 +144,21 @@ function createCommandsList() {
             }],
             execute: async (interaction) => {
                 await tasklist.handleSlashCommand(interaction);
+            }
+        },
+        setup: {
+            description: 'Apply a server layout (channels, roles, invite). Safe to re-run.',
+            options: [{
+                name: 'layout',
+                description: 'Which layout to apply',
+                type: 3, // STRING type
+                required: true,
+                choices: [
+                    { name: 'cardtable', value: 'cardtable' }
+                ]
+            }],
+            execute: async (interaction) => {
+                await cardtableSetup.handleSetupCommand(interaction);
             }
         },
         init: {

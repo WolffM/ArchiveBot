@@ -15,8 +15,17 @@
  * cheap, and they fail the day a discord.js upgrade renames something.
  */
 
-const { GuildScheduledEvent } = require('discord.js');
+const {
+    GuildScheduledEvent,
+    GuildChannel,
+    TextChannel,
+    Role,
+    Invite,
+    PermissionOverwriteManager,
+    PermissionFlagsBits,
+} = require('discord.js');
 const { createMockScheduledEvent, createMockGuild } = require('./mocks/discord');
+const { READ_ONLY_DENY, READ_ONLY_BOT_ALLOW } = require('../lib/cardtableSetup');
 
 /**
  * The time fields, which are accessors on the prototype and so are
@@ -101,6 +110,34 @@ describe('discord.js mock fidelity', () => {
             await expect(
                 guild.scheduledEvents.fetch({ guildScheduledEvent: 'nope', force: true })
             ).rejects.toMatchObject({ code: 10070 });
+        });
+    });
+
+    // What lib/cardtableSetup.js calls on real objects, and the stateful
+    // createMockLayoutGuild stands in for. Same reason as above: a mock method
+    // the library does not have would pass every setup test and fail on the
+    // operator's first run.
+    describe('the layout surface', () => {
+        it.each([
+            ['GuildChannel.setParent', GuildChannel.prototype.setParent],
+            ['TextChannel.createInvite', TextChannel.prototype.createInvite],
+            ['Invite.delete', Invite.prototype.delete],
+            ['PermissionOverwriteManager.edit', PermissionOverwriteManager.prototype.edit],
+        ])('%s is a real method', (_name, fn) => {
+            expect(typeof fn).toBe('function');
+        });
+
+        it.each([
+            ['Role.editable', Role.prototype, 'editable'],
+            ['Invite.url', Invite.prototype, 'url'],
+        ])('%s is a real accessor', (_name, proto, prop) => {
+            expect(Object.getOwnPropertyDescriptor(proto, prop)?.get).toBeDefined();
+        });
+
+        it('every overwrite key the read-only channels set is a permission flag', () => {
+            for (const key of [...Object.keys(READ_ONLY_DENY), ...Object.keys(READ_ONLY_BOT_ALLOW)]) {
+                expect(PermissionFlagsBits[key]).toBeDefined();
+            }
         });
     });
 });
