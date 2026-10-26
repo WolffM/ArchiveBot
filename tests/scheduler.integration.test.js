@@ -54,7 +54,7 @@ describe('Scheduler Integration Tests', () => {
 
     beforeEach(() => {
         // Create test output directory
-        testOutputDir = path.join(__dirname, '..', 'Output', 'test-guild-integration');
+        testOutputDir = path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, 'test-guild-integration');
         if (!fs.existsSync(testOutputDir)) {
             fs.mkdirSync(testOutputDir, { recursive: true });
         }

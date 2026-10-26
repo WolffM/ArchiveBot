@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const BASE_PATH = './Output/tasklist';
+const { outputPath } = require('../lib/paths');
+
+const BASE_PATH = outputPath('tasklist');
 
 module.exports = {
     getGuildPath,

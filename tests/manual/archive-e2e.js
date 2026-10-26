@@ -18,6 +18,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
+const { outputPath } = require('../../lib/paths');
 const { open } = require('sqlite');
 const archive = require('../../lib/archive');
 
@@ -165,7 +166,7 @@ async function runTest() {
 
         // Step 6: Verify SQLite DB
         console.log('\n6. Verifying SQLite database...');
-        const dbPath = path.join(__dirname, '..', '..', 'Output', GUILD_ID, 'archive.db');
+        const dbPath = outputPath(GUILD_ID, 'archive.db');
         const db = await open({ filename: dbPath, driver: sqlite3.Database });
 
         // Check that test messages exist in DB

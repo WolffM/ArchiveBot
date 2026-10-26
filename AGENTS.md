@@ -19,6 +19,7 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 - Guild config: `Resources/{guildId}/` — permissions, color roles
 - Guild output: `Output/{guildId}/` — archives, scheduled items
 - Task data: `Output/tasklist/{guildId}/`
+- `Output/` is the default root; every output path goes through `lib/paths.js` (`outputPath()`), never a literal `'Output'`
 - Permissions: `permissions.hasAdminAccess(guildId, userId)` / `permissions.hasTaskAccess(guildId, userId)`
 - Time parsing: `parseRelativeTime()` / `parseDateTime()` in `lib/scheduler.js`
 - Graceful shutdown: SIGTERM/SIGINT handlers in `index.js`
@@ -56,6 +57,10 @@ Telemetry (see **Notifications & telemetry**):
 - `MONITORING_TELEMETRY_URL` — defaults to `https://hadoku.me/health/api/telemetry`
 
 Other:
+- `ARCHIVEBOT_OUTPUT_DIR` — root for ALL output (archives, attachments, scheduler/sent/spaces/
+  cardtable state, tasklist, log.csv). Defaults to `Output/` in the checkout. When set, it
+  must already exist: the bot refuses to start rather than recreate it, because a missing
+  root means its disk is unmounted and the mount point is an empty dir on `/`.
 - `SCRAPE_API_URL` — defaults to `https://scraper.hadoku.me`
 - `SCRAPE_SERVICE_KEY` — service key for that API
 - `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR` (case-insensitive), defaults to `INFO`.

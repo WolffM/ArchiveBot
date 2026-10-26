@@ -108,7 +108,7 @@ function makeHandler(guild) {
     });
 }
 
-const OUTPUT_DIR = path.join(__dirname, '..', 'Output', GUILD_ID);
+const OUTPUT_DIR = path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, GUILD_ID);
 
 describe('POST /api/events/create', () => {
     beforeEach(() => {

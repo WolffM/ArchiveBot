@@ -115,7 +115,7 @@ function post(handler, payload, secret = EVENTS_SECRET) {
     });
 }
 
-const OUTPUT_DIR = path.join(__dirname, '..', 'Output', GUILD_ID);
+const OUTPUT_DIR = path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, GUILD_ID);
 
 describe('validateMessagePayload', () => {
     test('rejects a missing, empty or oversized body', () => {

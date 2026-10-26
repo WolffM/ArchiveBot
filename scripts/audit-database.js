@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
+const { OUTPUT_ROOT } = require('../lib/paths');
 
 const DISCORD_EPOCH_MS = 1420070400000;  // 2015-01-01
 const MAX_TIMESTAMP_MS = 1893456000000;  // 2030-01-01
@@ -185,7 +186,7 @@ async function checkArchiveFilesOnDisk(db, guildId) {
         FROM raw_archive
     `);
 
-    const outputPath = path.join(__dirname, '..', 'Output', guildId);
+    const outputPath = path.join(OUTPUT_ROOT, guildId);
     let dbMissing = [];
     for (const ref of dbRefs) {
         const filePath = path.join(outputPath, ref.folder, ref.archive_file);
@@ -353,7 +354,7 @@ async function diffSnapshot(db, guildId) {
 // ============ Main ============
 
 async function auditGuild(guildId) {
-    const dbPath = path.join(__dirname, '..', 'Output', guildId, 'archive.db');
+    const dbPath = path.join(OUTPUT_ROOT, guildId, 'archive.db');
     if (!fs.existsSync(dbPath)) {
         console.log('  SKIP: No database found');
         return null;
@@ -471,7 +472,7 @@ async function main() {
     const guildIdx = args.indexOf('--guild');
     const guildIdArg = guildIdx !== -1 ? args[guildIdx + 1] : null;
 
-    const outputPath = path.join(__dirname, '..', 'Output');
+    const outputPath = OUTPUT_ROOT;
     if (!fs.existsSync(outputPath)) {
         console.error('Output directory not found');
         process.exit(1);

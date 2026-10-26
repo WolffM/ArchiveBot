@@ -15,13 +15,14 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
+const { OUTPUT_ROOT } = require('../lib/paths');
 const { createLogger } = require('../utils/logger');
 const archive = require('../lib/archive');
 
 const log = createLogger('backfill');
 
 async function backfillGuild(guildId) {
-    const guildPath = path.join(__dirname, '..', 'Output', guildId);
+    const guildPath = path.join(OUTPUT_ROOT, guildId);
 
     if (!fs.existsSync(guildPath)) {
         log.warn('backfillGuild', { guildId, reason: 'Guild directory not found' });
@@ -145,7 +146,7 @@ async function main() {
     const guildIdx = args.indexOf('--guild');
     const guildIdArg = guildIdx !== -1 ? args[guildIdx + 1] : null;
 
-    const outputPath = path.join(__dirname, '..', 'Output');
+    const outputPath = OUTPUT_ROOT;
 
     if (!fs.existsSync(outputPath)) {
         console.error('Output directory not found');

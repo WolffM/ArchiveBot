@@ -88,7 +88,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-    // The store writes a real directory under Output/; take it back out.
+    // The store writes a real directory under the state root; take it back out.
     const file = store.getSpacesFilePath(GUILD_ID);
     if (fs.existsSync(file)) fs.rmSync(path.dirname(file), { recursive: true, force: true });
 });

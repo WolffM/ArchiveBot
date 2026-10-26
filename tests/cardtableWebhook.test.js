@@ -141,7 +141,7 @@ function handlerFor(client, { cardtableSecret = CARDTABLE_SECRET, eventsSecret =
     return createHandler({ discordClient: client, channelId: null, secret: null, eventsSecret, cardtableSecret });
 }
 
-const outputDirs = [GUILD_ID, MEET_GUILD_ID].map((id) => path.join(__dirname, '..', 'Output', id));
+const outputDirs = [GUILD_ID, MEET_GUILD_ID].map((id) => path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, id));
 
 beforeEach(() => {
     process.env.ARCHIVEBOT_EVENT_GUILD_ID = MEET_GUILD_ID;
@@ -152,7 +152,6 @@ beforeEach(() => {
 afterEach(() => {
     delete process.env.ARCHIVEBOT_EVENT_GUILD_ID;
     delete process.env.ARCHIVEBOT_EVENT_CHANNEL_ID;
-    fs.rmSync(path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, GUILD_ID), { recursive: true, force: true });
     for (const dir of outputDirs) fs.rmSync(dir, { recursive: true, force: true });
 });
 

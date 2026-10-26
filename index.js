@@ -1,3 +1,5 @@
+// First, so module-level paths read at require time (lib/paths.js) see .env.
+require('dotenv').config();
 const { Client, SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
@@ -6,7 +8,7 @@ const { startWebhookServer } = require('./lib/webhookServer');
 const meetingSpaceReaper = require('./lib/meetingSpaceReaper');
 const { createLogger } = require('./utils/logger');
 const { clientOptions } = require('./utils/clientOptions');
-require('dotenv').config();
+const { assertOutputRoot } = require('./lib/paths');
 
 const log = createLogger('bot');
 
@@ -416,6 +418,15 @@ async function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// A configured root that is missing means its disk is not mounted; starting
+// anyway would rebuild an empty Output on the root filesystem.
+try {
+    assertOutputRoot();
+} catch (err) {
+    log.error('output_root', err);
+    process.exit(1);
+}
 
 // Start the bot
 client.login(process.env.DISCORD_TOKEN)
