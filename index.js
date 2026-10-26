@@ -9,6 +9,8 @@ const meetingSpaceReaper = require('./lib/meetingSpaceReaper');
 const { createLogger } = require('./utils/logger');
 const { clientOptions } = require('./utils/clientOptions');
 const { assertOutputRoot } = require('./lib/paths');
+const { DataStore } = require('./lib/dataStore');
+const archiveImport = require('./lib/archiveImport');
 
 const log = createLogger('bot');
 
@@ -172,6 +174,9 @@ client.once('clientReady', async () => {
 
     // Initialize scheduler for reminders and events
     scheduler.initializeScheduler(client);
+
+    // Copy the archive into dataplatform's data endpoint (lib/archiveImport.js).
+    if (DataStore.configured()) archiveImport.startImporter(DataStore.fromEnv());
 
     // Global commands (visible to everyone)
     const globalCommands = Object.entries(standardCommandsList)
@@ -408,6 +413,7 @@ async function shutdown(signal) {
             await new Promise((resolve) => global.__webhookServer.close(resolve));
         }
         scheduler.stopScheduler();
+        archiveImport.stopImporter();
         client.destroy();
         log.success('shutdown', { message: 'Discord client disconnected' });
         process.exit(0);

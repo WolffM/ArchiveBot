@@ -30,6 +30,8 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 - Discord API via discord.js
 - `scraper.hadoku.me` — pickleball automation (`lib/pickleball.js`, env: `SCRAPE_API_URL`)
 - Deploy: `.github/workflows/deploy.yml` → repository dispatch to `WolffM/hadoku_site`
+- dataplatform's fleet data endpoint (`HADOKU_DATA_URL`), namespace `archivebot` — the archive's
+  system of record. See **Archive storage**.
 
 ## Environment variables
 
@@ -61,6 +63,8 @@ Other:
   cardtable state, tasklist, log.csv). Defaults to `Output/` in the checkout. When set, it
   must already exist: the bot refuses to start rather than recreate it, because a missing
   root means its disk is unmounted and the mount point is an empty dir on `/`.
+- `HADOKU_DATA_URL` / `HADOKU_SERVICE_KEY` — dataplatform's data endpoint and the bot's service key
+  (the same vault item as `SCRAPE_SERVICE_KEY`). Both set = the importer runs. Either unset = it doesn't.
 - `SCRAPE_API_URL` — defaults to `https://scraper.hadoku.me`
 - `SCRAPE_SERVICE_KEY` — service key for that API
 - `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR` (case-insensitive), defaults to `INFO`.
@@ -138,6 +142,34 @@ a request signed with `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` is pinned to that gu
 to #events, and only that caller may send `embeds` on `/api/messages/send`
 (validated subset in `lib/messageWebhook.js` `validateEmbeds`). The setup refuses to
 bind a second guild. The same file reserves `links` for `/link` identity linking.
+
+## Archive storage
+
+The archive's system of record is dataplatform's data endpoint, namespace `archivebot`
+(contract: `hadoku-dataplatform/server/dataplatform/data/AGENTS.md`). `lib/dataStore.js` is the
+client, a port of that repo's `client.py`. Keys carry ids only; names live in the records:
+
+```
+<guild>/<channel>/batches/<ms>.json                    archive_<ms>.json, immutable
+<guild>/<channel>/authors/<ms>.json                    authors_<ms>.json, immutable
+<guild>/<channel>/attachments/<message>/<attachment>   one per recorded attachment
+<guild>/<channel>/legacy/<folder>/<file>               files no record claims (pre-2024 metadata)
+<guild>/<channel>/names/<folder>                       every folder name the channel had
+<guild>/snapshots/archive-<yyyy-mm-dd>.db              VACUUM INTO of archive.db
+log.csv                                                appended by every archive run
+```
+
+- `archive.db` is a local CACHE: every batch it was built from is in the store, so it rebuilds.
+- `lib/archiveImport.js` copies local files up, 30 s after start, every 10 min while the key is
+  unbound, then daily. Every PUT sends its sha256 (the store refuses a mismatch), so `uploaded`/`same`
+  in `Output/import/manifest.jsonl` is a store-verified byte match. A key holding other bytes is a
+  `conflict`, never overwritten. **It never deletes local files.**
+- The binding is the operator's: Command Station → Account → Data bindings (`archivebot-service-key`).
+- Attachments are `attachments/<id>_<name>` on disk. Until 2026-10-25 they were by name alone, and
+  same-named files overwrote each other; `/archiverepair` recovers what Discord still has.
+- `tests/dataStore.test.js` and `tests/archiveImport*.test.js` run dataplatform's REAL listener on a
+  scratch store (`tests/support/`), so they need `~/srv/hadoku-dataplatform/server/.venv`
+  (`DATAPLATFORM_SERVER` overrides). Without it they fail; they do not skip.
 
 ## Dev commands
 
