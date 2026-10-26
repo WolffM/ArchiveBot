@@ -2,6 +2,7 @@
  * File I/O utilities
  */
 const fs = require('fs');
+const http = require('http');
 const https = require('https');
 
 /**
@@ -37,22 +38,44 @@ function saveJsonFile(filePath, data) {
 
 /**
  * Download file from URL to local path
+ *
+ * Written to `<filePath>.part` and renamed only once the whole body is on disk,
+ * so a failed download never leaves a truncated file where the real one goes.
+ * A non-200 response is a failure, not a file: Discord answers an expired or
+ * missing attachment with an error body, which used to be saved as the
+ * attachment and counted as downloaded.
+ *
  * @param {string} url - URL to download from
  * @param {string} filePath - Local path to save file
- * @returns {Promise<void>}
+ * @param {number} [expectedSize] - Byte count to verify, when the caller knows it
+ * @returns {Promise<number>} bytes written
  */
-async function downloadFile(url, filePath) {
+function downloadFile(url, filePath, expectedSize) {
+    const partPath = `${filePath}.part`;
+    const client = url.startsWith('http:') ? http : https;
     return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(filePath);
-        https.get(url, response => {
-            response.pipe(file);
+        const fail = (err) => {
+            fs.rm(partPath, { force: true }, () => reject(err));
+        };
+        client.get(url, response => {
+            if (response.statusCode !== 200) {
+                response.resume();
+                fail(new Error(`HTTP ${response.statusCode} downloading ${filePath}`));
+                return;
+            }
+            const file = fs.createWriteStream(partPath);
+            response.on('error', err => file.destroy(err));
+            file.on('error', fail);
             file.on('finish', () => {
-                file.close();
-                resolve();
+                const bytes = file.bytesWritten;
+                if (expectedSize !== undefined && expectedSize !== null && bytes !== expectedSize) {
+                    fail(new Error(`expected ${expectedSize} bytes, got ${bytes} downloading ${filePath}`));
+                    return;
+                }
+                fs.rename(partPath, filePath, err => (err ? fail(err) : resolve(bytes)));
             });
-        }).on('error', err => {
-            fs.unlink(filePath, () => reject(err));
-        });
+            response.pipe(file);
+        }).on('error', fail);
     });
 }
 
