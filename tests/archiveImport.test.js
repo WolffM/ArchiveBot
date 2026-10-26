@@ -158,3 +158,28 @@ describe('runImport, as the bot schedules it', () => {
         expect(await runImport(ds)).toBe(24 * 60 * 60 * 1000);
     });
 });
+
+describe('scripts/prune-imported.js', () => {
+    const { execFileSync } = require('child_process');
+    const prune = (...args) => JSON.parse(execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'prune-imported.js'), ...args], {
+        env: { ...process.env, LOG_LEVEL: 'ERROR' },
+    }).toString());
+
+    test('deletes only store-verified attachments whose bytes still match', async () => {
+        const { oldFolder, newFolder } = await seed();
+        await importAll(ds);
+        // Changed after the import: its store copy no longer matches, so it stays.
+        fs.writeFileSync(path.join(oldFolder, 'attachments', 'notes.txt'), 'edited later');
+
+        expect(prune()).toMatchObject({ apply: false, wouldDelete: 3, deleted: 0 });
+        expect(fs.existsSync(path.join(oldFolder, 'attachments', 'old.gif'))).toBe(true);
+
+        expect(prune('--apply')).toMatchObject({ apply: true, deleted: 3, kept: { 'changed since import': 1 } });
+        expect(fs.readdirSync(path.join(oldFolder, 'attachments'))).toEqual(['notes.txt']);
+        expect(fs.existsSync(path.join(newFolder, 'attachments'))).toBe(false);
+        // The cache stays.
+        expect(fs.existsSync(path.join(oldFolder, 'archive_100.json'))).toBe(true);
+        expect(fs.existsSync(path.join(oldFolder, 'authors_100.json'))).toBe(true);
+        expect(fs.existsSync(path.join(OUT(), GUILD, 'archive.db'))).toBe(true);
+    });
+});
