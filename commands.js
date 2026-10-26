@@ -1,5 +1,6 @@
 const { MessageFlags } = require('discord.js');
 const archive = require('./lib/archive');
+const archiveRepair = require('./lib/archiveRepair');
 const tasklist = require('./lib/tasklist');
 const colorroles = require('./lib/colorroles');
 const permissions = require('./lib/permissions');
@@ -83,6 +84,34 @@ function createCommandsList() {
                 } catch (error) {
                     console.error('Error in archiveserver command:', error);
                     await interaction.editReply('An error occurred while archiving the server.');
+                }
+            },
+        },
+        archiverepair: {
+            description: 'Find attachments lost to same-name overwrites and recover them from Discord',
+            options: [
+                {
+                    name: 'apply',
+                    description: 'Rename and re-download (default: only report what would happen)',
+                    type: 5, // BOOLEAN type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const apply = interaction.options.getBoolean('apply') ?? false;
+                try {
+                    if (apply) await interaction.editReply('Repairing attachments; this can take an hour or more.');
+                    const t = await archiveRepair.repairGuild(interaction.guildId, { rest: interaction.client.rest, apply });
+                    const lines = [
+                        `${t.channels} channels: ${t.ok} fine, ${t.rename} to rename, ${t.recover} to recover, ${t.legacy} unrecorded (kept as-is).`,
+                    ];
+                    if (apply) lines.push(`Renamed ${t.renamed}, recovered ${t.recovered}, gone from Discord ${t.gone}, failed ${t.failed}.`);
+                    else lines.push('Nothing changed. Run with apply:true to repair.');
+                    await interaction.editReply(lines.join('\n'));
+                } catch (error) {
+                    console.error('Error in archiverepair command:', error);
+                    await interaction.editReply('An error occurred while repairing attachments.');
                 }
             },
         },

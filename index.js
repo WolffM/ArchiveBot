@@ -28,6 +28,7 @@ const commandCategories = {
     // Admin-only commands
     archiveserver: COMMAND_CATEGORIES.ADMIN,
     archivechannel: COMMAND_CATEGORIES.ADMIN,
+    archiverepair: COMMAND_CATEGORIES.ADMIN,
     init: COMMAND_CATEGORIES.ADMIN,
     setup: COMMAND_CATEGORIES.ADMIN,
     test: COMMAND_CATEGORIES.ADMIN,
