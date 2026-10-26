@@ -166,3 +166,68 @@ test('attachmentIdOf reads the id out of a CDN URL', () => {
     expect(repair.attachmentIdOf(CDN('1400000000000000007', 'x.png'))).toBe('1400000000000000007');
     expect(repair.attachmentIdOf('https://example.com/nope')).toBeNull();
 });
+
+describe('one applying run per guild', () => {
+    test('a second apply is refused while the first runs, and allowed after', async () => {
+        writeArchive('archive_1.json', [['1300000000000000001', [A]]]);
+        let release;
+        const gate = new Promise((resolve) => { release = resolve; });
+        const slow = { post: jest.fn(async () => { await gate; return { refreshed_urls: [] }; }) };
+
+        const first = repair.repairGuild(GUILD, { rest: slow, apply: true });
+        expect(repair.isRunning(GUILD)).toBe(true);
+        await expect(repair.repairGuild(GUILD, { rest: slow, apply: true })).rejects.toThrow(/already running/);
+        await expect(repair.repairGuild(GUILD, { rest: slow })).resolves.toMatchObject({ recover: 1 });
+
+        release();
+        await first;
+        expect(repair.isRunning(GUILD)).toBe(false);
+    });
+});
+
+describe('/archiverepair', () => {
+    const { createCommandsList } = require('../commands');
+
+    function interaction(apply, send = jest.fn().mockResolvedValue(undefined)) {
+        return {
+            guildId: GUILD,
+            guild: { name: 'Test Guild' },
+            user: { id: '1500000000000000009', send },
+            client: { rest: rest() },
+            options: { getBoolean: () => apply },
+            deferReply: jest.fn().mockResolvedValue(undefined),
+            editReply: jest.fn().mockResolvedValue(undefined),
+        };
+    }
+
+    test('a dry run answers in the interaction', async () => {
+        seed();
+        const i = interaction(null);
+        await createCommandsList().archiverepair.execute(i);
+        expect(i.editReply).toHaveBeenCalledWith(expect.stringContaining('2 to rename, 2 to recover, 1 unrecorded'));
+        expect(i.user.send).not.toHaveBeenCalled();
+    });
+
+    test('apply answers at once and DMs the result when the run ends', async () => {
+        seed();
+        bodies.set(`/${A.id}`, 'first');
+        bodies.set(`/${B.id}`, 'second!');
+        let delivered;
+        const done = new Promise((resolve) => { delivered = resolve; });
+        const i = interaction(true, jest.fn(async (msg) => delivered(msg)));
+        await createCommandsList().archiverepair.execute(i);
+        expect(i.editReply).toHaveBeenCalledWith(expect.stringContaining("I'll DM you the result"));
+        expect(await done).toContain('Renamed 2, recovered 2, gone from Discord 0, failed 0.');
+    });
+
+    test('a DM that cannot be delivered is logged, not thrown', async () => {
+        seed();
+        let failed;
+        const tried = new Promise((resolve) => { failed = resolve; });
+        const i = interaction(true, jest.fn(async () => { failed(); throw new Error('Cannot send messages to this user'); }));
+        await createCommandsList().archiverepair.execute(i);
+        await tried;
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(repair.isRunning(GUILD)).toBe(false);
+    });
+});

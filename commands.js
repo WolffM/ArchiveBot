@@ -6,6 +6,9 @@ const colorroles = require('./lib/colorroles');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
 const cardtableSetup = require('./lib/cardtableSetup');
+const { createLogger } = require('./utils/logger');
+
+const repairLog = createLogger('archiveRepair');
 
 function createCommandsList() {
     return {
@@ -100,19 +103,32 @@ function createCommandsList() {
             execute: async (interaction) => {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const apply = interaction.options.getBoolean('apply') ?? false;
-                try {
-                    if (apply) await interaction.editReply('Repairing attachments; this can take an hour or more.');
-                    const t = await archiveRepair.repairGuild(interaction.guildId, { rest: interaction.client.rest, apply });
-                    const lines = [
-                        `${t.channels} channels: ${t.ok} fine, ${t.rename} to rename, ${t.recover} to recover, ${t.legacy} unrecorded (kept as-is).`,
-                    ];
-                    if (apply) lines.push(`Renamed ${t.renamed}, recovered ${t.recovered}, gone from Discord ${t.gone}, failed ${t.failed}.`);
-                    else lines.push('Nothing changed. Run with apply:true to repair.');
-                    await interaction.editReply(lines.join('\n'));
-                } catch (error) {
-                    console.error('Error in archiverepair command:', error);
-                    await interaction.editReply('An error occurred while repairing attachments.');
+                const { guildId, user } = interaction;
+                const rest = interaction.client.rest;
+                if (!apply) {
+                    try {
+                        const t = await archiveRepair.repairGuild(guildId, { rest });
+                        await interaction.editReply(archiveRepair.summarize(t, false));
+                    } catch (error) {
+                        repairLog.error('archiverepair', error, { guildId });
+                        await interaction.editReply('An error occurred while planning the repair.');
+                    }
+                    return;
                 }
+                if (archiveRepair.isRunning(guildId)) {
+                    await interaction.editReply('A repair is already running for this server.');
+                    return;
+                }
+                // Detached: a big guild takes an hour, and the interaction token
+                // dies after 15 minutes. The result goes to the invoker by DM.
+                await interaction.editReply("Repair started. It can take an hour or more; I'll DM you the result.");
+                archiveRepair.repairGuild(guildId, { rest, apply: true })
+                    .then((t) => user.send(`Attachment repair for ${interaction.guild.name}:\n${archiveRepair.summarize(t, true)}`))
+                    .catch((error) => {
+                        repairLog.error('archiverepair', error, { guildId });
+                        return user.send(`Attachment repair for ${interaction.guild.name} failed: ${error.message}`);
+                    })
+                    .catch((error) => repairLog.error('archiverepair_dm', error, { guildId, userId: user.id }));
             },
         },
         task: {
