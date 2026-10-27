@@ -8,7 +8,7 @@ const path = require('path');
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 const { DataStore } = require('../lib/dataStore');
-const { importAll, loadManifest } = require('../lib/archiveImport');
+const { importAll, loadManifest, isStored } = require('../lib/archiveImport');
 const archive = require('../lib/archive');
 const { startDataListener, KEY, OTHER_KEY } = require('./support/dataListener');
 
@@ -195,6 +195,14 @@ describe('scripts/prune-imported.js', () => {
         await importAll(ds);
         fs.writeFileSync(path.join(oldFolder, 'attachments', 'notes.txt'), 'edited later');
         prune('--apply');
+
+        // The next daily import no longer sees the pruned files; the manifest keeps them.
+        // The only upload is the edited notes.txt: it no longer matches its record, so it is unrecorded.
+        expect(await importAll(ds)).toMatchObject({ uploaded: 1, conflict: 0, failed: 0 });
+        expect(loadManifest().get(`${GUILD}/${CH}/legacy/general_${CH}/notes.txt`)).toMatchObject({ status: 'uploaded' });
+        const carried = loadManifest().get(`${GUILD}/${CH}/attachments/1300000000000000005/1400000000000000005`);
+        expect(carried).toMatchObject({ sha256: sha('already id-named'), storeSha256: sha('already id-named') });
+        expect(isStored(carried)).toBe(true);
 
         const rest = { post: jest.fn() };
         const t = await require('../lib/archiveRepair').repairGuild(GUILD, { rest, apply: true });
