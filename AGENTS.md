@@ -30,6 +30,9 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 - Discord API via discord.js
 - `scraper.hadoku.me` — pickleball automation (`lib/pickleball.js`, env: `SCRAPE_API_URL`)
 - Deploy: `.github/workflows/deploy.yml` → repository dispatch to `WolffM/hadoku_site`
+- `hosting.json` — the bot's hosting request to hadoku-fleet-manager (moving to claw-4,
+  hadoku-fleet-manager-private#136). Validate edits with `fleet hosting-request ./hosting.json`;
+  `coldStartS` covers a fresh host's restore from the store (archive.db rebuild: 68 s on hokon).
 - dataplatform's fleet data endpoint (`HADOKU_DATA_URL`), namespace `archivebot` — the archive's
   system of record. See **Archive storage**.
 
