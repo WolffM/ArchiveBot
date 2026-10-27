@@ -158,6 +158,7 @@ client, a port of that repo's `client.py`. Keys carry ids only; names live in th
 <guild>/<channel>/names/<folder>                       every folder name the channel had
 <guild>/snapshots/archive-<yyyy-mm-dd>.db              VACUUM INTO of archive.db
 log.csv                                                appended by every archive run
+state/<path below the output root>                     the bot's working state (lib/stateSync.js)
 ```
 
 - `archive.db` is a local CACHE: every batch it was built from is in the store, so it rebuilds.
@@ -165,6 +166,10 @@ log.csv                                                appended by every archive
   unbound, then daily. Every PUT sends its sha256 (the store refuses a mismatch), so `uploaded`/`same`
   in `Output/import/manifest.jsonl` is a store-verified byte match. A key holding other bytes is a
   `conflict`, never overwritten. **It never deletes local files.**
+- `lib/stateSync.js` keeps `state/…` current every 10 min: scheduled/sentMessages/spaces/cardtable JSON,
+  the tasklist, and any other non-archive file under the root. The local file stays the working copy and
+  the bot never reads state back from the store, so reminders fire with the endpoint down. Writes are
+  compare-and-swap against the version this process last wrote; another writer is logged as a conflict.
 - The binding is the operator's: Command Station → Account → Data bindings (`archivebot-service-key`).
 - Attachments are `attachments/<id>_<name>` on disk. Until 2026-10-25 they were by name alone, and
   same-named files overwrote each other; `/archiverepair` recovers what Discord still has.

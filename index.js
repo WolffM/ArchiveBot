@@ -12,6 +12,7 @@ const { assertOutputRoot } = require('./lib/paths');
 const { DataStore } = require('./lib/dataStore');
 const archiveImport = require('./lib/archiveImport');
 const archiveRepair = require('./lib/archiveRepair');
+const stateSync = require('./lib/stateSync');
 
 const log = createLogger('bot');
 
@@ -176,8 +177,12 @@ client.once('clientReady', async () => {
     // Initialize scheduler for reminders and events
     scheduler.initializeScheduler(client);
 
-    // Copy the archive into dataplatform's data endpoint (lib/archiveImport.js).
-    if (DataStore.configured()) archiveImport.startImporter(DataStore.fromEnv());
+    // Copy the archive into dataplatform's data endpoint (lib/archiveImport.js),
+    // and keep the store's copy of the bot's state current (lib/stateSync.js).
+    if (DataStore.configured()) {
+        archiveImport.startImporter(DataStore.fromEnv());
+        stateSync.startStateSync(DataStore.fromEnv());
+    }
 
     // Global commands (visible to everyone)
     const globalCommands = Object.entries(standardCommandsList)
@@ -415,6 +420,7 @@ async function shutdown(signal) {
         }
         scheduler.stopScheduler();
         archiveImport.stopImporter();
+        stateSync.stopStateSync();
         client.destroy();
         log.success('shutdown', { message: 'Discord client disconnected' });
         process.exit(0);
