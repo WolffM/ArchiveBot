@@ -154,6 +154,16 @@ describe('repairGuild', () => {
         expect(t).toMatchObject({ recovered: 0, gone: 1, failed: 0 });
     });
 
+    test('bytes of the wrong size are kept beside the attachments, never as one', async () => {
+        writeArchive('archive_1.json', [['1300000000000000001', [A]]]);
+        bodies.set(`/${A.id}`, 'not the recorded size');
+        const t = await repair.repairGuild(GUILD, { rest: rest(), apply: true });
+        expect(t).toMatchObject({ recovered: 0, mismatched: 1, failed: 0 });
+        expect(fs.readdirSync(path.join(folder, 'attachments'))).toEqual([]);
+        expect(fs.readFileSync(path.join(folder, 'attachments-mismatch', `${A.id}_image.png`), 'utf8')).toBe('not the recorded size');
+        expect(repair.planChannel(folder).recover.map((a) => a.id)).toEqual([A.id]);
+    });
+
     test('a refresh-urls error fails the batch and the run goes on', async () => {
         writeArchive('archive_1.json', [['1300000000000000001', [A]]]);
         const broken = { post: jest.fn().mockRejectedValue(new Error('rate limited')) };
@@ -239,7 +249,7 @@ describe('/archiverepair', () => {
         const i = interaction(true, jest.fn(async (msg) => delivered(msg)));
         await createCommandsList().archiverepair.execute(i);
         expect(i.editReply).toHaveBeenCalledWith(expect.stringContaining("I'll DM you the result"));
-        expect(await done).toContain('Renamed 2, recovered 2, gone from Discord 0, failed 0.');
+        expect(await done).toContain('Renamed 2, recovered 2, gone from Discord 0, failed 0, kept in attachments-mismatch/ for a size mismatch 0.');
     });
 
     test('a DM that cannot be delivered is logged, not thrown', async () => {
