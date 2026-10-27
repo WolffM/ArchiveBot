@@ -135,6 +135,43 @@ describe('archiveChannel attachments', () => {
         expect(rows.map((r) => r.id)).toEqual(['1300000000000000001', '1300000000000000002']);
     });
 
+    test('bytes Discord serves at another size than it recorded are kept beside the attachments', async () => {
+        const channel = { id: '1100000000000000002', name: 'screens', guild: { id: '1200000000000000002' } };
+        const now = Date.now();
+        const author = { id: '1500000000000000001', username: 'poster', globalName: 'Poster' };
+        const messages = [
+            createMockMessage({
+                id: '1300000000000000012',
+                createdTimestamp: now,
+                author,
+                channel,
+                attachments: new Map([['1400000000000000012', attachment('1400000000000000012', `${base}/b`, BODIES['/b'].length)]]),
+            }),
+            createMockMessage({
+                id: '1300000000000000011',
+                createdTimestamp: now - 1000,
+                author,
+                channel,
+                // Recorded as 95212 bytes; the CDN serves a re-encoding.
+                attachments: new Map([['1400000000000000011', attachment('1400000000000000011', `${base}/a`, 95212)]]),
+            }),
+        ];
+        let served = false;
+        channel.messages = {
+            fetch: jest.fn(async () => {
+                if (served) return createMockCollection();
+                served = true;
+                return createMockCollection(messages.map((m) => [m.id, m]));
+            }),
+        };
+
+        await archive.archiveSingleChannel(channel);
+
+        const folder = path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, channel.guild.id, `${channel.name}_${channel.id}`);
+        expect(fs.readdirSync(path.join(folder, 'attachments'))).toEqual(['1400000000000000012_image.png']);
+        expect(fs.readFileSync(path.join(folder, archive.MISMATCH_DIR, '1400000000000000011_image.png'))).toEqual(BODIES['/a']);
+    });
+
     test('a name cannot address outside the attachments folder', () => {
         expect(archive.attachmentFileName({ id: '1', name: '../../escape.png' })).toBe('1_escape.png');
     });
