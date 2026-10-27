@@ -16,7 +16,7 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 
 ## Key patterns
 
-- Guild config: `Resources/{guildId}/` — permissions, color roles
+- Guild config: `Output/Resources/{guildId}/` — permissions, color roles (under the output root, so it is state)
 - Guild output: `Output/{guildId}/` — archives, scheduled items
 - Task data: `Output/tasklist/{guildId}/`
 - `Output/` is the default root; every output path goes through `lib/paths.js` (`outputPath()`), never a literal `'Output'`
@@ -60,7 +60,7 @@ Telemetry (see **Notifications & telemetry**):
 
 Other:
 - `ARCHIVEBOT_OUTPUT_DIR` — root for ALL output (archives, attachments, scheduler/sent/spaces/
-  cardtable state, tasklist, log.csv). Defaults to `Output/` in the checkout. When set, it
+  cardtable state, per-guild config in `Resources/`, tasklist, log.csv). Defaults to `Output/` in the checkout. When set, it
   must already exist: the bot refuses to start rather than recreate it, because a missing
   root means its disk is unmounted and the mount point is an empty dir on `/`.
 - `HADOKU_DATA_URL` / `HADOKU_SERVICE_KEY` — dataplatform's data endpoint and the bot's service key
@@ -162,13 +162,18 @@ state/<path below the output root>                     the bot's working state (
 ```
 
 - `archive.db` is a local CACHE: every batch it was built from is in the store, so it rebuilds.
+- **The host holds nothing the store does not.** At start, before login, `lib/storeRestore.js` fills in
+  what is missing: all state when the root has none, a guild's batches plus a rebuilt `archive.db` when
+  its channel folders have no db (or the host is fresh), and the import manifest from the store's
+  listing. Attachments stay in the store. It asks the store only when something is missing, so a whole
+  host starts with the endpoint down; a host missing something it cannot fetch exits and PM2 retries.
 - `lib/archiveImport.js` copies local files up, 30 s after start, every 10 min while the key is
   unbound, then daily. Every PUT sends its sha256 (the store refuses a mismatch), so `uploaded`/`same`
   in `Output/import/manifest.jsonl` is a store-verified byte match. A key holding other bytes is a
   `conflict`, never overwritten. **It never deletes local files.**
 - `lib/stateSync.js` keeps `state/…` current every 10 min: scheduled/sentMessages/spaces/cardtable JSON,
   the tasklist, and any other non-archive file under the root. The local file stays the working copy and
-  the bot never reads state back from the store, so reminders fire with the endpoint down. Writes are
+  a running bot never reads state back from the store, so reminders fire with the endpoint down. Writes are
   compare-and-swap against the version this process last wrote; another writer is logged as a conflict.
 - The binding is the operator's: Command Station → Account → Data bindings (`archivebot-service-key`).
 - Attachments are `attachments/<id>_<name>` on disk. Until 2026-10-25 they were by name alone, and

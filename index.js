@@ -13,6 +13,7 @@ const { DataStore } = require('./lib/dataStore');
 const archiveImport = require('./lib/archiveImport');
 const archiveRepair = require('./lib/archiveRepair');
 const stateSync = require('./lib/stateSync');
+const { restoreFromStore } = require('./lib/storeRestore');
 
 const log = createLogger('bot');
 
@@ -455,10 +456,24 @@ try {
     process.exit(1);
 }
 
-// Start the bot
-client.login(process.env.DISCORD_TOKEN)
+// A host missing its state or archive index rebuilds them from the store
+// before anything reads them (lib/storeRestore.js). One that cannot does not
+// start: empty, it would drop every reminder and then overwrite the store's.
+async function restore() {
+    if (!DataStore.configured()) return;
+    const ds = DataStore.fromEnv();
+    try {
+        const counts = await restoreFromStore(ds);
+        if (Object.values(counts).some(Boolean)) log.success('restoreFromStore', counts);
+    } finally {
+        ds.close();
+    }
+}
+
+restore()
+    .then(() => client.login(process.env.DISCORD_TOKEN))
     .then(() => log.success('login', { message: 'Login successful' }))
     .catch(err => {
-        log.error('login', err);
+        log.error('startup', err);
         process.exit(1);
     });

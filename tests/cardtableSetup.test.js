@@ -272,8 +272,5 @@ describe('the guild owner is an admin', () => {
         guild.members.fetch = jest.fn(async () => ({ roles: { cache: { some: () => false } } }));
         await expect(permissions.hasAdminAccess(OWNER, guild)).resolves.toBe(true);
         await expect(permissions.hasAdminAccess('200000000000000009', guild)).resolves.toBe(false);
-        // The non-owner lookup initialises Resources/{guildId}/permissions.json,
-        // which the permissions module does not route through the test root.
-        fs.rmSync(path.join(__dirname, '..', 'Resources', guild.id), { recursive: true, force: true });
     });
 });
