@@ -21,6 +21,6 @@
   "disk": { "stateGb": 10, "growthGbPerMonth": 2 },
   "availability": { "noticeMin": 15, "stateful": true, "singleton": true, "coldStartS": 300 },
   "placement": { "require": ["wired", "pm2-peer"] },
-  "isolation": { "ciMayRead": false },
+  "isolation": { "ciMayRead": false, "advisoryUntil": 0 },
   "contact": "WolffM/hadoku-fleet-manager-private#136"
 }

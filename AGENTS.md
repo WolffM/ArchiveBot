@@ -33,6 +33,8 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 - `hosting.json` — the bot's hosting request to hadoku-fleet-manager (moving to claw-4,
   hadoku-fleet-manager-private#136). Validate edits with `fleet hosting-request ./hosting.json`;
   `coldStartS` covers a fresh host's restore from the store (archive.db rebuild: 68 s on hokon).
+  `isolation.advisoryUntil: 0` makes `ciMayRead: false` a hard filter: no claw is offered until its CI
+  runs as its own user, because a CI job must never be able to read the bot.
 - dataplatform's fleet data endpoint (`HADOKU_DATA_URL`), namespace `archivebot` — the archive's
   system of record. See **Archive storage**.
 
