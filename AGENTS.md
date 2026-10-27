@@ -46,7 +46,9 @@ Core:
 
 Webhook server. The server starts if ANY route is fully configured; a route
 whose config is missing answers 404 rather than taking the others down. With
-none configured it does not start at all.
+none configured it does not start at all. `GET /health` (unauthenticated) answers
+`{status, commit, discord}`, 200 while the Discord session is ready, 503 while not;
+`commit` is the checkout's HEAD, which hadoku_site's deploy and service move check.
 - `PICKLEBALL_WEBHOOK_SECRET` / `PICKLEBALL_CHANNEL_ID` — scraper waitlist callbacks
 - `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET` — HMAC for `/api/events/*` and `/api/messages/send`, shared with rally-api
 - `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes; see **cardtable guild**.

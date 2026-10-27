@@ -291,3 +291,38 @@ describe('createHandler', () => {
         expect(body.error).toBe('discord_post_failed');
     });
 });
+
+describe('GET /health', () => {
+    function get(handler, path) {
+        return new Promise((resolve, reject) => {
+            const server = http.createServer(handler);
+            server.listen(0, '127.0.0.1', () => {
+                http.get({ host: '127.0.0.1', port: server.address().port, path }, (res) => {
+                    const chunks = [];
+                    res.on('data', (c) => chunks.push(c));
+                    res.on('end', () => {
+                        server.close();
+                        resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+                    });
+                }).on('error', (err) => { server.close(); reject(err); });
+            });
+        });
+    }
+    const head = require('child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    test('answers the checkout commit, unauthenticated, while Discord is ready', async () => {
+        const handler = createHandler({ discordClient: { isReady: () => true } });
+        await expect(get(handler, '/health')).resolves.toEqual({ status: 200, body: { status: 'ok', commit: head, discord: 'ready' } });
+    });
+
+    test('is 503 while the Discord session is down', async () => {
+        const handler = createHandler({ discordClient: { isReady: () => false } });
+        await expect(get(handler, '/health')).resolves.toEqual({ status: 503, body: { status: 'not_ready', commit: head, discord: 'not_ready' } });
+    });
+
+    test('is only a GET', async () => {
+        const handler = createHandler({ discordClient: { isReady: () => true } });
+        const { status } = await postWithHandler(handler, '/health', {});
+        expect(status).toBe(404);
+    });
+});
