@@ -185,6 +185,28 @@ describe('one applying run per guild', () => {
     });
 });
 
+describe('repairAll', () => {
+    const BROKEN = '1200000000000000008';
+    const brokenDir = () => path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, BROKEN);
+    afterEach(() => fs.rmSync(brokenDir(), { recursive: true, force: true }));
+
+    test('applies to every guild folder, and one that fails does not stop the rest', async () => {
+        seed();
+        bodies.set(`/${A.id}`, 'first');
+        bodies.set(`/${B.id}`, 'second!');
+        fs.mkdirSync(path.join(brokenDir(), 'general_1100000000000000008'), { recursive: true });
+        fs.writeFileSync(path.join(brokenDir(), 'general_1100000000000000008', 'archive_1.json'), '{not json');
+        fs.mkdirSync(path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, 'tasklist'), { recursive: true });
+
+        expect(repair.archivedGuilds()).toEqual([BROKEN, GUILD]);
+        const results = await repair.repairAll({ rest: rest() });
+        expect(Object.keys(results).sort()).toEqual([BROKEN, GUILD]);
+        expect(results[BROKEN].error).toMatch(/JSON/);
+        expect(results[GUILD]).toMatchObject({ renamed: 2, recovered: 2, gone: 0, failed: 0 });
+        expect(repair.isRunning(GUILD)).toBe(false);
+    });
+});
+
 describe('/archiverepair', () => {
     const { createCommandsList } = require('../commands');
 

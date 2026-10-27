@@ -167,6 +167,8 @@ log.csv                                                appended by every archive
 - The binding is the operator's: Command Station → Account → Data bindings (`archivebot-service-key`).
 - Attachments are `attachments/<id>_<name>` on disk. Until 2026-10-25 they were by name alone, and
   same-named files overwrote each other; `/archiverepair` recovers what Discord still has.
+  From the host, `kill -USR2 <bot pid>` (the `node …/index.js` child of the PM2 wrapper) applies it to
+  every archived guild inside the running bot; progress is `repairChannel`/`repairGuild` in its log.
 - `tests/dataStore.test.js` and `tests/archiveImport*.test.js` run dataplatform's REAL listener on a
   scratch store (`tests/support/`), so they need `~/srv/hadoku-dataplatform/server/.venv`
   (`DATAPLATFORM_SERVER` overrides). Without it they fail; they do not skip.

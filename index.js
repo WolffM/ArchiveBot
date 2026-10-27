@@ -11,6 +11,7 @@ const { clientOptions } = require('./utils/clientOptions');
 const { assertOutputRoot } = require('./lib/paths');
 const { DataStore } = require('./lib/dataStore');
 const archiveImport = require('./lib/archiveImport');
+const archiveRepair = require('./lib/archiveRepair');
 
 const log = createLogger('bot');
 
@@ -425,6 +426,19 @@ async function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// `kill -USR2 <bot pid>` applies /archiverepair to every archived guild, from
+// the host. The bot's own session does the Discord calls; nothing leaves it.
+process.on('SIGUSR2', () => {
+    if (!client.isReady()) {
+        log.warn('archiveRepairSignal', { status: 'ignored', reason: 'client not ready' });
+        return;
+    }
+    log.info('archiveRepairSignal', { status: 'started' });
+    archiveRepair.repairAll({ rest: client.rest })
+        .then((results) => log.success('archiveRepairSignal', { results: JSON.stringify(results) }))
+        .catch((error) => log.error('archive_repair_signal', error));
+});
 
 // A configured root that is missing means its disk is not mounted; starting
 // anyway would rebuild an empty Output on the root filesystem.
