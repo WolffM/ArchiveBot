@@ -8,7 +8,7 @@
  * A file goes only when ALL of these hold:
  * - the import manifest (Output/import/manifest.jsonl, written by the bot) has
  *   it as uploaded/same/skipped, with the sha256 the STORE reported;
- * - it is an attachment or legacy file (batch JSON and archive.db are the
+ * - it is an attachment (or a kept mismatch) or legacy file (batch JSON and archive.db are the
  *   local cache and stay);
  * - re-hashing it now gives that same sha256.
  *
@@ -18,11 +18,10 @@
 const fs = require('fs');
 const path = require('path');
 const { sha256File } = require('../lib/dataStore');
-const { loadManifest, manifestPath } = require('../lib/archiveImport');
+const { loadManifest, manifestPath, isStored } = require('../lib/archiveImport');
 
 const apply = process.argv.includes('--apply');
-const VERIFIED = new Set(['uploaded', 'same', 'skipped']);
-const PRUNABLE = /\/(attachments|legacy)\//;
+const PRUNABLE = /\/(attachments|attachments-mismatch|legacy)\//;
 
 (async () => {
     if (!fs.existsSync(manifestPath())) {
@@ -34,9 +33,8 @@ const PRUNABLE = /\/(attachments|legacy)\//;
 
     for (const entry of loadManifest().values()) {
         if (!PRUNABLE.test(entry.key) || !entry.file) continue;
-        if (!VERIFIED.has(entry.status)) { keep(entry.status); continue; }
-        const storeSha = entry.storeSha256 || null;
-        if (!storeSha || storeSha !== entry.sha256) { keep('no store-confirmed hash'); continue; }
+        if (!isStored(entry)) { keep(entry.status === 'conflict' || entry.status === 'failed' ? entry.status : 'no store-confirmed hash'); continue; }
+        const storeSha = entry.storeSha256;
         if (!fs.existsSync(entry.file)) { keep('already gone'); continue; }
         if (await sha256File(entry.file) !== storeSha) { keep('changed since import'); continue; }
         const size = fs.statSync(entry.file).size;

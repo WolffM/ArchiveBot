@@ -153,6 +153,7 @@ client, a port of that repo's `client.py`. Keys carry ids only; names live in th
 <guild>/<channel>/batches/<ms>.json                    archive_<ms>.json, immutable
 <guild>/<channel>/authors/<ms>.json                    authors_<ms>.json, immutable
 <guild>/<channel>/attachments/<message>/<attachment>   one per recorded attachment
+<guild>/<channel>/attachments-mismatch/<message>/<att> what Discord serves now, when not the recorded size
 <guild>/<channel>/legacy/<folder>/<file>               files no record claims (pre-2024 metadata)
 <guild>/<channel>/names/<folder>                       every folder name the channel had
 <guild>/snapshots/archive-<yyyy-mm-dd>.db              VACUUM INTO of archive.db
@@ -169,6 +170,8 @@ log.csv                                                appended by every archive
   same-named files overwrote each other; `/archiverepair` recovers what Discord still has.
   From the host, `kill -USR2 <bot pid>` (the `node …/index.js` child of the PM2 wrapper) applies it to
   every archived guild inside the running bot; progress is `repairChannel`/`repairGuild` in its log.
+  An attachment the import manifest shows the store holding counts as `stored`, not missing, so a
+  repair after `scripts/prune-imported.js --apply` downloads nothing again.
 - `tests/dataStore.test.js` and `tests/archiveImport*.test.js` run dataplatform's REAL listener on a
   scratch store (`tests/support/`), so they need `~/srv/hadoku-dataplatform/server/.venv`
   (`DATAPLATFORM_SERVER` overrides). Without it they fail; they do not skip.

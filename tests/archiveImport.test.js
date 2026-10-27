@@ -54,6 +54,9 @@ async function seed() {
     fs.writeFileSync(path.join(oldFolder, 'attachments', 'image.png'), 'the third one');
     fs.writeFileSync(path.join(oldFolder, 'attachments', 'notes.txt'), 'notes');
     fs.writeFileSync(path.join(oldFolder, 'attachments', 'old.gif'), 'legacy bytes');
+    // A was recovered, but Discord served other bytes than its recorded size.
+    fs.mkdirSync(path.join(oldFolder, 'attachments-mismatch'));
+    fs.writeFileSync(path.join(oldFolder, 'attachments-mismatch', archive.attachmentFileName(A)), 'first, re-encoded');
     write(newFolder, 'archive_200.json', [['1300000000000000005', [D]]]);
     fs.writeFileSync(path.join(newFolder, 'attachments', archive.attachmentFileName(D)), 'already id-named');
     fs.writeFileSync(path.join(OUT(), 'log.csv'), 'Task,GuildId,ChannelID,Timestamp\n');
@@ -78,6 +81,7 @@ test('every file lands under its id key with the same bytes', async () => {
 
     const base = `${GUILD}/${CH}`;
     expect(await keys(`${base}/`)).toEqual([
+        `${base}/attachments-mismatch/1300000000000000001/1400000000000000001`,
         `${base}/attachments/1300000000000000003/1400000000000000003`,
         `${base}/attachments/1300000000000000003/1400000000000000004`,
         `${base}/attachments/1300000000000000005/1400000000000000005`,
@@ -88,7 +92,9 @@ test('every file lands under its id key with the same bytes', async () => {
         `${base}/names/chat_${CH}`,
         `${base}/names/general_${CH}`,
     ]);
-    // The overwritten first image.png has nothing to import: /archiverepair recovers it.
+    // The overwritten first image.png is only there as what Discord serves now.
+    expect((await ds.get(`${base}/attachments-mismatch/1300000000000000001/1400000000000000001`)).body.toString())
+        .toBe('first, re-encoded');
     const third = await ds.get(`${base}/attachments/1300000000000000003/1400000000000000003`);
     expect(third.body.toString()).toBe('the third one');
     expect(third.contentType).toBe('image/png');
@@ -171,15 +177,30 @@ describe('scripts/prune-imported.js', () => {
         // Changed after the import: its store copy no longer matches, so it stays.
         fs.writeFileSync(path.join(oldFolder, 'attachments', 'notes.txt'), 'edited later');
 
-        expect(prune()).toMatchObject({ apply: false, wouldDelete: 3, deleted: 0 });
+        expect(prune()).toMatchObject({ apply: false, wouldDelete: 4, deleted: 0 });
         expect(fs.existsSync(path.join(oldFolder, 'attachments', 'old.gif'))).toBe(true);
 
-        expect(prune('--apply')).toMatchObject({ apply: true, deleted: 3, kept: { 'changed since import': 1 } });
+        expect(prune('--apply')).toMatchObject({ apply: true, deleted: 4, kept: { 'changed since import': 1 } });
         expect(fs.readdirSync(path.join(oldFolder, 'attachments'))).toEqual(['notes.txt']);
+        expect(fs.existsSync(path.join(oldFolder, 'attachments-mismatch'))).toBe(false);
         expect(fs.existsSync(path.join(newFolder, 'attachments'))).toBe(false);
         // The cache stays.
         expect(fs.existsSync(path.join(oldFolder, 'archive_100.json'))).toBe(true);
         expect(fs.existsSync(path.join(oldFolder, 'authors_100.json'))).toBe(true);
         expect(fs.existsSync(path.join(OUT(), GUILD, 'archive.db'))).toBe(true);
+    });
+
+    test('a repair after the prune re-downloads nothing the store holds', async () => {
+        const { oldFolder } = await seed();
+        await importAll(ds);
+        fs.writeFileSync(path.join(oldFolder, 'attachments', 'notes.txt'), 'edited later');
+        prune('--apply');
+
+        const rest = { post: jest.fn() };
+        const t = await require('../lib/archiveRepair').repairGuild(GUILD, { rest, apply: true });
+        // A (as its mismatch), C, D, and notes.txt, whose local copy was edited:
+        // the store holds the bytes that were imported.
+        expect(t).toMatchObject({ stored: 4, recover: 0, recovered: 0, failed: 0 });
+        expect(rest.post).not.toHaveBeenCalled();
     });
 });
