@@ -78,6 +78,60 @@ test('append creates, then appends atomically', async () => {
     expect((await ds.get('log.csv')).body.toString()).toBe('Task,GuildId\narchive,1\n');
 });
 
+describe('appendOnce', () => {
+    // The append reaches the store, then its connection dies before the answer:
+    // the client's retry is the request that used to land twice.
+    function dropFirstAppendAnswer(target) {
+        const real = target._once.bind(target);
+        let dropped = false;
+        target._once = async (method, p, opts) => {
+            const res = await real(method, p, opts);
+            if (method === 'POST' && !dropped) {
+                dropped = true;
+                throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+            }
+            return res;
+        };
+    }
+
+    test('a retry after a landed append does not append again', async () => {
+        await ds.append('once/log.csv', 'Task\n');
+        const plain = store();
+        dropFirstAppendAnswer(plain);
+        await plain.append('once/log.csv', 'plain,1\n');
+        plain.close();
+        // The gap this closes: the bare append's retry landed a second copy.
+        expect((await ds.get('once/log.csv')).body.toString()).toBe('Task\nplain,1\nplain,1\n');
+
+        dropFirstAppendAnswer(ds);
+        await ds.appendOnce('once/log.csv', 'archive,2\n');
+        expect((await ds.get('once/log.csv')).body.toString()).toBe('Task\nplain,1\nplain,1\narchive,2\n');
+    });
+
+    test('another writer in between is contention, and both lines land once', async () => {
+        await ds.append('race/log.csv', 'Task\n');
+        const other = store();
+        const realHead = ds.head.bind(ds);
+        let raced = false;
+        ds.head = async (key) => {
+            const h = await realHead(key);
+            if (!raced) {
+                raced = true;
+                await other.append(key, 'other,1\n');
+            }
+            return h;
+        };
+        await ds.appendOnce('race/log.csv', 'mine,1\n');
+        other.close();
+        expect((await ds.get('race/log.csv')).body.toString()).toBe('Task\nother,1\nmine,1\n');
+    });
+
+    test('an absent record is left absent', async () => {
+        expect(await ds.appendOnce('absent/log.csv', 'x\n')).toBeNull();
+        expect(await ds.head('absent/log.csv')).toBeNull();
+    });
+});
+
 test('list pages through every record under a prefix in key order', async () => {
     for (let i = 0; i < 7; i++) await ds.put(`list/k${i}`, String(i), { createOnly: true });
     const seen = [];

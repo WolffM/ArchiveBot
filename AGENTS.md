@@ -157,7 +157,7 @@ client, a port of that repo's `client.py`. Keys carry ids only; names live in th
 <guild>/<channel>/legacy/<folder>/<file>               files no record claims (pre-2024 metadata)
 <guild>/<channel>/names/<folder>                       every folder name the channel had
 <guild>/snapshots/archive-<yyyy-mm-dd>.db              VACUUM INTO of archive.db
-log.csv                                                appended by every archive run
+log.csv                                                appended once per archive run (`appendOnce`, conditional)
 state/<path below the output root>                     the bot's working state (lib/stateSync.js)
 ```
 
