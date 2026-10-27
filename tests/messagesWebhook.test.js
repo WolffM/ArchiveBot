@@ -69,7 +69,7 @@ function postWithHandler(handler, path_, bodyObj, extraHeaders = {}) {
 
 function validPayload(overrides = {}) {
     return {
-        source: 'meet',
+        source: 'rally',
         slug: 'testslug1234',
         idempotencyKey: `meet-poll:test-${Math.random().toString(36).slice(2)}`,
         timestamp: Date.now(),
@@ -169,7 +169,7 @@ describe('POST /api/messages/send', () => {
             expect(mirrorToLedger).toHaveBeenCalledWith(
                 'archivebot.message',
                 'message posted',
-                expect.objectContaining({ source: 'meet', channelId: CHANNEL_ID })
+                expect.objectContaining({ source: 'rally', channelId: CHANNEL_ID })
             );
             expect(mirrorFailureToLedger).not.toHaveBeenCalled();
         });
@@ -192,7 +192,7 @@ describe('POST /api/messages/send', () => {
             expect(mirrorFailureToLedger).toHaveBeenCalledWith(
                 'archivebot.message',
                 'message not delivered',
-                expect.objectContaining({ source: 'meet', channelId: CHANNEL_ID, reason, error: err })
+                expect.objectContaining({ source: 'rally', channelId: CHANNEL_ID, reason, error: err })
             );
             expect(mirrorToLedger).not.toHaveBeenCalled();
         });

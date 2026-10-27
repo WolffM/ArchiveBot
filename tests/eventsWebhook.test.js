@@ -63,7 +63,7 @@ function validPayload(overrides = {}) {
     const start = new Date(Date.now() + 24 * 3600 * 1000);
     const end = new Date(start.getTime() + 2 * 3600 * 1000);
     return {
-        source: 'meet',
+        source: 'rally',
         slug: 'testslug1234',
         idempotencyKey: `meet:test-${Math.random().toString(36).slice(2)}`,
         timestamp: Date.now(),
@@ -71,7 +71,7 @@ function validPayload(overrides = {}) {
         startTime: start.toISOString(),
         endTime: end.toISOString(),
         description: '3/3 available: a, b, c',
-        location: 'https://hadoku.me/meet?e=testslug1234',
+        location: 'https://hadoku.me/rally?e=testslug1234',
         ...overrides,
     };
 }
@@ -414,7 +414,7 @@ describe('POST /api/events/channels', () => {
             secret: PICKLEBALL_SECRET,
             eventsSecret: null,
         });
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -424,7 +424,7 @@ describe('POST /api/events/channels', () => {
     test('401 without a signature', async () => {
         const handler = makeHandler(guildWithChannels());
         const res = await postWithHandler(handler, '/api/events/channels', {
-            source: 'meet',
+            source: 'rally',
             timestamp: Date.now(),
         });
         expect(res.status).toBe(401);
@@ -433,7 +433,7 @@ describe('POST /api/events/channels', () => {
 
     test('401 with a signature from the wrong (pickleball) secret', async () => {
         const handler = makeHandler(guildWithChannels());
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload), PICKLEBALL_SECRET),
         });
@@ -442,7 +442,7 @@ describe('POST /api/events/channels', () => {
 
     test('400 on a stale timestamp — a captured read stays replayable otherwise', async () => {
         const handler = makeHandler(guildWithChannels());
-        const payload = { source: 'meet', timestamp: Date.now() - 30 * 60 * 1000 };
+        const payload = { source: 'rally', timestamp: Date.now() - 30 * 60 * 1000 };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -452,7 +452,7 @@ describe('POST /api/events/channels', () => {
 
     test('lists only postable text channels, category-then-name, with parentName', async () => {
         const handler = makeHandler(guildWithChannels());
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -509,7 +509,7 @@ describe('POST /api/events/channels', () => {
 
     test('offers archived forum posts — posting to one unarchives it', async () => {
         const handler = makeHandler(guildWithForum([archivedPost(1), archivedPost(2)]));
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -527,7 +527,7 @@ describe('POST /api/events/channels', () => {
     test('caps one parent at 25 threads so a big forum cannot bury the channels', async () => {
         const archived = Array.from({ length: 40 }, (_, i) => archivedPost(i + 1));
         const handler = makeHandler(guildWithForum(archived));
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -540,7 +540,7 @@ describe('POST /api/events/channels', () => {
 
     test('a forum the bot cannot read does not cost the caller the whole list', async () => {
         const handler = makeHandler(guildWithForum([], { fetchThrows: true }));
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -558,7 +558,7 @@ describe('POST /api/events/channels', () => {
             secret: PICKLEBALL_SECRET,
             eventsSecret: EVENTS_SECRET,
         });
-        const payload = { source: 'meet', timestamp: Date.now(), guild_id: 'some-other-guild' };
+        const payload = { source: 'rally', timestamp: Date.now(), guild_id: 'some-other-guild' };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -572,7 +572,7 @@ describe('POST /api/events/channels', () => {
     test('500 when no target guild is configured', async () => {
         delete process.env.ARCHIVEBOT_EVENT_GUILD_ID;
         const handler = makeHandler(guildWithChannels());
-        const payload = { source: 'meet', timestamp: Date.now() };
+        const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
             'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
@@ -769,7 +769,7 @@ describe('POST /api/events/update', () => {
         const start = new Date(Date.now() + 48 * 3600 * 1000);
         const end = new Date(start.getTime() + 90 * 60 * 1000);
         return {
-            source: 'meet',
+            source: 'rally',
             slug: 'testslug1234',
             idempotencyKey: `meet-update:test-${Math.random().toString(36).slice(2)}`,
             timestamp: Date.now(),
@@ -778,7 +778,7 @@ describe('POST /api/events/update', () => {
             startTime: start.toISOString(),
             endTime: end.toISOString(),
             description: 'moved',
-            location: 'https://hadoku.me/meet?e=testslug1234',
+            location: 'https://hadoku.me/rally?e=testslug1234',
             remindBeforeMs: 3600000,
             ...overrides,
         };
@@ -871,7 +871,7 @@ describe('POST /api/events/update', () => {
         const scheduledEvent = guild.scheduledEvents.cache.get(eventId);
 
         const res = await post(handler, {
-            source: 'meet',
+            source: 'rally',
             idempotencyKey: 'meet-cancel:testslug1234#1',
             timestamp: Date.now(),
             scheduledEventId: eventId,

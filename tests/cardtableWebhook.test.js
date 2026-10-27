@@ -231,7 +231,7 @@ describe('the events secret is unchanged', () => {
         const res = await post(
             handlerFor(client),
             '/api/messages/send',
-            { source: 'meet', idempotencyKey: 'meet-1', timestamp: Date.now(), content: 'Winner: Pizza' },
+            { source: 'rally', idempotencyKey: 'rally-1', timestamp: Date.now(), content: 'Winner: Pizza' },
             EVENTS_SECRET
         );
         expect(res.status).toBe(200);
@@ -241,7 +241,7 @@ describe('the events secret is unchanged', () => {
 
     test('meet may not send embeds', async () => {
         const { client, send } = mockClient();
-        const res = await post(handlerFor(client), '/api/messages/send', releasePayload({ source: 'meet' }), EVENTS_SECRET);
+        const res = await post(handlerFor(client), '/api/messages/send', releasePayload({ source: 'rally' }), EVENTS_SECRET);
         expect(res).toEqual({ status: 400, body: { success: false, error: 'embeds_not_permitted' } });
         expect(send).not.toHaveBeenCalled();
     });

@@ -544,11 +544,11 @@ describe('Scheduler Integration Tests', () => {
 
             const item = await tickWith({
                 type: 'event',
-                location: 'https://hadoku.me/meet?e=qqmt7yfkkhh2',
+                location: 'https://hadoku.me/rally?e=qqmt7yfkkhh2',
                 triggerAt: start.toISOString()
             });
 
-            expect(item.location).toBe('https://hadoku.me/meet?e=qqmt7yfkkhh2');
+            expect(item.location).toBe('https://hadoku.me/rally?e=qqmt7yfkkhh2');
         });
     });
 
@@ -568,12 +568,12 @@ describe('Scheduler Integration Tests', () => {
         it('adds a URL location — the meet link is the actionable one', () => {
             const content = scheduler.buildEventStartMessage({
                 ...base,
-                location: 'https://hadoku.me/meet?e=qey2bkee5ath',
+                location: 'https://hadoku.me/rally?e=qey2bkee5ath',
             });
             expect(content.split('\n')).toEqual([
                 '**Event:** Big Walk #2',
                 'https://discord.com/events/guild-1/event-1',
-                'https://hadoku.me/meet?e=qey2bkee5ath',
+                'https://hadoku.me/rally?e=qey2bkee5ath',
             ]);
         });
 

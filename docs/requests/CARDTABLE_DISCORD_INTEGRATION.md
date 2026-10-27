@@ -15,7 +15,7 @@ and `log.fail` (not ledger alerts) for refused requests.
 
 ## Ask 1: a cardtable secret for messages and events
 
-Today the only way in is `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET`, which meet-api holds. cardtable should
+Today the only way in is `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET`, which rally-api holds. cardtable should
 not share meet's key. Please add `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET`, accepted on
 `/api/messages/send`, `/api/events/create`, `/api/events/update` and `/api/events/channels`, as the
 spaces routes do for theirs (`lib/webhookServer.js:203-206`). It could be a second accepted secret on
