@@ -56,7 +56,8 @@ none configured it does not start at all. `GET /health` (unauthenticated) answer
 `commit` is the checkout's HEAD, which hadoku_site's deploy and service move check.
 - `PICKLEBALL_WEBHOOK_SECRET` / `PICKLEBALL_CHANNEL_ID` — scraper waitlist callbacks
 - `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET` — HMAC for `/api/events/*` and `/api/messages/send`, shared with rally-api
-- `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes; see **cardtable guild**.
+- `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes, plus
+  `GET /api/messages/recent`; see **cardtable guild**.
   Unset = cardtable-signed requests 401; meet is unaffected.
 - `ARCHIVEBOT_EVENT_GUILD_ID` / `ARCHIVEBOT_EVENT_CHANNEL_ID` — where webhook-created events land and announce
 - `WEBHOOK_PORT` — defaults to 3004
@@ -149,6 +150,13 @@ a request signed with `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` is pinned to that gu
 to #events, and only that caller may send `embeds` on `/api/messages/send`
 (validated subset in `lib/messageWebhook.js` `validateEmbeds`). The setup refuses to
 bind a second guild. The same file reserves `links` for `/link` identity linking.
+
+`GET /api/messages/recent?channel=general&limit=5` takes cardtable's secret only (rally-api has no business reading
+that chat), signed as an HMAC over the raw query string. It answers the bound guild's
+#general (no other channel, ever) as `{messages: [{author, text, at}]}`, oldest first,
+at most 10, bots/system/empty skipped, as plain text with every `<…>` id token
+resolved or replaced and URLs/spoilers hidden (`lib/recentMessages.js`). It feeds
+cardtable's front page, so nothing in it may identify or link back.
 
 ## Archive storage
 
