@@ -153,10 +153,14 @@ bind a second guild. The same file reserves `links` for `/link` identity linking
 
 `GET /api/messages/recent?channel=general&limit=5` takes cardtable's secret only (rally-api has no business reading
 that chat), signed as an HMAC over the raw query string. It answers the bound guild's
-#general (no other channel, ever) as `{messages: [{author, text, at}]}`, oldest first,
+#general (no other channel, ever) as `{messages: [{author, avatar, color, text, at}]}`, oldest first,
 at most 10, bots/system/empty skipped, as plain text with every `<…>` id token
-resolved or replaced and URLs/spoilers hidden (`lib/recentMessages.js`). It feeds
-cardtable's front page, so nothing in it may identify or link back.
+resolved or replaced and URLs/spoilers hidden (`lib/recentMessages.js`). `avatar` is the
+author's guild avatar (else profile, else Discord's default) inlined as a 64px `data:` URI,
+null if the CDN fails; `color` is their name's role colour `#rrggbb`, null without one.
+It feeds cardtable's front page, which draws it as Discord does, so nothing in it may
+link back: never an id, and never a CDN URL (it carries the user id, and hadoku.me's
+CSP admits `data:` images, not Discord's CDN).
 
 ## Archive storage
 

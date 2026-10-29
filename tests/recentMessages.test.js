@@ -1,6 +1,7 @@
 /**
  * GET /api/messages/recent: cardtable's signed read of its own #general, as
- * plain text with no ids or links, for hadoku-cardtable's front page.
+ * plain text with no ids or links, avatars inlined, for hadoku-cardtable's
+ * front page.
  */
 
 jest.mock('../lib/ledger', () => ({
@@ -66,15 +67,22 @@ function getRecent(handler, query = 'channel=general&limit=5', secret = CARDTABL
 }
 
 let seq = 0;
-function message({ content, at = BASE + seq * 1000, author = 'alice', bot = false, system = false, mentions = {} }) {
+/** Discord's CDN URL for an author's avatar, the way discord.js builds it: it carries the user id. */
+const avatarUrl = (author) => `https://cdn.discordapp.com/avatars/user-${author}/hash-${author}.webp?size=64`;
+/** The bytes the fake CDN answers for `author`. */
+const avatarBytes = (author) => Buffer.from(`webp-${author}`);
+const avatarUri = (author) => `data:image/webp;base64,${avatarBytes(author).toString('base64')}`;
+
+function message({ content, at = BASE + seq * 1000, author = 'alice', bot = false, system = false, mentions = {}, color = 0 }) {
     seq += 1;
+    const displayAvatarURL = jest.fn(() => avatarUrl(author));
     return {
         id: `msg-${seq}`,
         content,
         createdTimestamp: at,
         system,
         author: { id: `user-${author}`, username: author.toLowerCase(), displayName: author, bot, avatar: 'avatar-hash' },
-        member: { displayName: author },
+        member: { displayName: author, displayColor: color, displayAvatarURL },
         attachments: createMockCollection(),
         embeds: [],
         mentions: {
@@ -117,17 +125,25 @@ function bind(channels = { announcements: ANNOUNCEMENTS, events: 'ch-events', ge
 
 const outputDirs = [GUILD_ID, OTHER_GUILD_ID].map((id) => path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, id));
 
+let cdn;
 beforeEach(() => {
     seq = 0;
     bind();
+    cdn = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+        const author = /hash-([^.]+)\.webp/.exec(url)?.[1];
+        return author === 'broken'
+            ? new Response('nope', { status: 404, headers: { 'content-type': 'text/plain' } })
+            : new Response(avatarBytes(author), { headers: { 'content-type': 'image/webp' } });
+    });
 });
 
 afterEach(() => {
+    cdn.mockRestore();
     for (const dir of outputDirs) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe('GET /api/messages/recent', () => {
-    test('answers the newest messages, oldest first, as author/text/at only', async () => {
+    test('answers the newest messages, oldest first, as author/avatar/color/text/at only', async () => {
         const msgs = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'].map((content) => message({ content }));
         const { client, fetchMessages } = mockClient(msgs.slice().reverse());
 
@@ -136,9 +152,9 @@ describe('GET /api/messages/recent', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
             messages: [
-                { author: 'alice', text: 'five', at: '2026-10-28T18:00:04Z' },
-                { author: 'alice', text: 'six', at: '2026-10-28T18:00:05Z' },
-                { author: 'alice', text: 'seven', at: '2026-10-28T18:00:06Z' },
+                { author: 'alice', avatar: avatarUri('alice'), color: null, text: 'five', at: '2026-10-28T18:00:04Z' },
+                { author: 'alice', avatar: avatarUri('alice'), color: null, text: 'six', at: '2026-10-28T18:00:05Z' },
+                { author: 'alice', avatar: avatarUri('alice'), color: null, text: 'seven', at: '2026-10-28T18:00:06Z' },
             ],
         });
         expect(client.channels.fetch).toHaveBeenCalledWith(GENERAL);
@@ -168,7 +184,7 @@ describe('GET /api/messages/recent', () => {
         expect(res.body.messages.map((m) => m.text)).toEqual(['kept 1', 'kept 2']);
     });
 
-    test('carries no ids, avatars or links', async () => {
+    test('carries no ids or links: the avatar is the image, not its URL', async () => {
         const msgs = [
             message({
                 content: `hey <@${USER_ID}> see https://discord.com/channels/1/2/3`,
@@ -177,8 +193,37 @@ describe('GET /api/messages/recent', () => {
         ];
         const { client } = mockClient(msgs);
         const res = await getRecent(handlerFor(client));
-        expect(res.body.messages).toEqual([{ author: 'alice', text: 'hey @Bob see [link]', at: '2026-10-28T18:00:00Z' }]);
-        expect(JSON.stringify(res.body)).not.toMatch(/\d{17,}|avatar|user-|msg-/);
+        expect(res.body.messages).toEqual([
+            { author: 'alice', avatar: avatarUri('alice'), color: null, text: 'hey @Bob see [link]', at: '2026-10-28T18:00:00Z' },
+        ]);
+        expect(JSON.stringify(res.body)).not.toMatch(/\d{17,}|cdn\.discordapp|user-|msg-/);
+    });
+
+    test("inlines each author's avatar once, at 64px static, and keeps it across calls", async () => {
+        const msgs = [message({ content: 'a', author: 'dana' }), message({ content: 'b', author: 'dana' }), message({ content: 'c', author: 'eli' })];
+        const { client } = mockClient(msgs);
+        const handler = handlerFor(client);
+
+        const res = await getRecent(handler);
+        expect(res.body.messages.map((m) => m.avatar)).toEqual([avatarUri('dana'), avatarUri('dana'), avatarUri('eli')]);
+        // Newest first, so dana's later message is the one read.
+        expect(msgs[1].member.displayAvatarURL).toHaveBeenCalledWith({ extension: 'webp', size: 64, forceStatic: true });
+        expect(cdn.mock.calls.map(([url]) => url)).toEqual([avatarUrl('eli'), avatarUrl('dana')]);
+
+        await getRecent(handler);
+        expect(cdn).toHaveBeenCalledTimes(2);
+    });
+
+    test('an avatar the CDN will not serve is null; the message still comes', async () => {
+        const { client } = mockClient([message({ content: 'hi', author: 'broken' })]);
+        const res = await getRecent(handlerFor(client));
+        expect(res.body.messages).toEqual([{ author: 'broken', avatar: null, color: null, text: 'hi', at: '2026-10-28T18:00:00Z' }]);
+    });
+
+    test("the name colour is the author's role colour, null without one", async () => {
+        const { client } = mockClient([message({ content: 'hi', author: 'fay', color: 0x1abc9c }), message({ content: 'yo', author: 'gus', color: 0x00000f })]);
+        const res = await getRecent(handlerFor(client));
+        expect(res.body.messages.map((m) => m.color)).toEqual(['#1abc9c', '#00000f']);
     });
 
     test('refuses an unsigned call, a wrong signature and the events secret with 401', async () => {
