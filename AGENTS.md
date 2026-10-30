@@ -59,6 +59,12 @@ none configured it does not start at all. `GET /health` (unauthenticated) answer
 - `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes, plus
   `GET /api/messages/recent`; see **cardtable guild**.
   Unset = cardtable-signed requests 401; meet is unaffected.
+- `ARCHIVEBOT_PREFS_WEBHOOK_SECRET` — hadoku_site prefs-api's HMAC on `/api/discord/*` (Discord
+  identity for hadoku avatars: consent URL, code exchange, current avatars by id; `lib/discordIdentity.js`).
+  Unset = those routes 404.
+- `DISCORD_CLIENT_SECRET` — this application's OAuth2 client secret, for the code exchange. Unset =
+  Discord linking answers 503 (avatar lookups by id still work: they use the bot token). Every
+  Discord credential in the ecosystem lives here; prefs-api holds none.
 - `ARCHIVEBOT_EVENT_GUILD_ID` / `ARCHIVEBOT_EVENT_CHANNEL_ID` — where webhook-created events land and announce
 - `WEBHOOK_PORT` — defaults to 3004
 
