@@ -161,14 +161,14 @@ describe('GET /api/messages/recent', () => {
         expect(fetchMessages).toHaveBeenCalledTimes(1);
     });
 
-    test('defaults to 5 and caps the limit at 10', async () => {
-        const msgs = Array.from({ length: 20 }, (_, i) => message({ content: `m${i}` }));
+    test('defaults to 5 and caps the limit at 50', async () => {
+        const msgs = Array.from({ length: 80 }, (_, i) => message({ content: `m${i}` }));
         const { client } = mockClient(msgs);
         const handler = handlerFor(client);
 
         expect((await getRecent(handler, 'channel=general')).body.messages).toHaveLength(5);
-        const capped = await getRecent(handler, 'channel=general&limit=50');
-        expect(capped.body.messages.map((m) => m.text)).toEqual(Array.from({ length: 10 }, (_, i) => `m${i + 10}`));
+        const capped = await getRecent(handler, 'channel=general&limit=100');
+        expect(capped.body.messages.map((m) => m.text)).toEqual(Array.from({ length: 50 }, (_, i) => `m${i + 30}`));
     });
 
     test('skips bots, system messages and attachment-only messages, and still fills the limit', async () => {
@@ -294,8 +294,8 @@ describe('parseQuery', () => {
         ['', { limit: 5 }],
         ['channel=general', { limit: 5 }],
         ['limit=1', { limit: 1 }],
-        ['channel=general&limit=10', { limit: 10 }],
-        ['limit=11', { limit: 10 }],
+        ['channel=general&limit=50', { limit: 50 }],
+        ['limit=51', { limit: 50 }],
         ['limit=0', { error: 'invalid_limit' }],
         ['limit=-1', { error: 'invalid_limit' }],
         ['limit=3.5', { error: 'invalid_limit' }],
