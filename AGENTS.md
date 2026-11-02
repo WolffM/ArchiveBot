@@ -2,7 +2,7 @@
 
 ## What this is
 
-Discord bot (discord.js v14, Node.js, SQLite). Features: message archiving, task management, color roles, permissions, reminders/events, pickleball automation.
+Discord bot (discord.js v14, Node.js, SQLite). Features: message archiving, task management, color roles, permissions, reminders/events.
 
 Local PM2 service (runs on the developer's Windows/WSL machine, not a remote server). Deployed via push to `main` → GitHub Actions `repository_dispatch` to `WolffM/hadoku_site` → self-hosted runner on the same machine → `git pull` + `pnpm install --frozen-lockfile` + `pm2 restart archive-bot`. The build command lives in `../hadoku_site/services/mgmt-api/deploy-config.json`, not here — a new dependency needs its lockfile change committed or the deploy fails on the frozen lockfile. The `hadoku.me` domain is a Cloudflare tunnel back to localhost.
 
@@ -28,7 +28,6 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 ## External dependencies
 
 - Discord API via discord.js
-- `scraper.hadoku.me` — pickleball automation (`lib/pickleball.js`, env: `SCRAPE_API_URL`)
 - Deploy: `.github/workflows/deploy.yml` → repository dispatch to `WolffM/hadoku_site`
 - `hosting.json` — the bot's hosting request to hadoku-fleet-manager (moving to claw-4,
   hadoku-fleet-manager-private#136). Validate edits with `fleet hosting-request ./hosting.json`;
@@ -54,7 +53,6 @@ whose config is missing answers 404 rather than taking the others down. With
 none configured it does not start at all. `GET /health` (unauthenticated) answers
 `{status, commit, discord}`, 200 while the Discord session is ready, 503 while not;
 `commit` is the checkout's HEAD, which hadoku_site's deploy and service move check.
-- `PICKLEBALL_WEBHOOK_SECRET` / `PICKLEBALL_CHANNEL_ID` — scraper waitlist callbacks
 - `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET` — HMAC for `/api/events/*` and `/api/messages/send`, shared with rally-api
 - `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes, plus
   `GET /api/messages/recent`; see **cardtable guild**.
@@ -77,10 +75,8 @@ Other:
   cardtable state, per-guild config in `Resources/`, tasklist, log.csv). Defaults to `Output/` in the checkout. When set, it
   must already exist: the bot refuses to start rather than recreate it, because a missing
   root means its disk is unmounted and the mount point is an empty dir on `/`.
-- `HADOKU_DATA_URL` / `HADOKU_SERVICE_KEY` — dataplatform's data endpoint and the bot's service key
-  (the same vault item as `SCRAPE_SERVICE_KEY`). Both set = the importer runs. Either unset = it doesn't.
-- `SCRAPE_API_URL` — defaults to `https://scraper.hadoku.me`
-- `SCRAPE_SERVICE_KEY` — service key for that API
+- `HADOKU_DATA_URL` / `HADOKU_SERVICE_KEY` — dataplatform's data endpoint and the bot's service key.
+  Both set = the importer runs. Either unset = it doesn't.
 - `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR` (case-insensitive), defaults to `INFO`.
   An unrecognised value falls back to `INFO` rather than silencing the service.
 

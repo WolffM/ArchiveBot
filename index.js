@@ -205,9 +205,9 @@ client.once('clientReady', async () => {
 
     log.success('initialize', { message: 'All commands registered' });
 
-    // Start the inbound webhook server for cross-service notifications
-    // (hadoku-scrape → ArchiveBot → Discord). Silently skipped if the
-    // PICKLEBALL_WEBHOOK_SECRET / PICKLEBALL_CHANNEL_ID env vars are absent.
+    // Start the inbound webhook server for cross-service calls (rally-api,
+    // cardtable, prefs-api → ArchiveBot → Discord). Skipped, with a warning,
+    // when no caller's secret is set.
     global.__webhookServer = startWebhookServer({ discordClient: client });
 
     // Seed the invite-use cache. The invite→role binding works by DIFFING use

@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const http = require('http');
 const {
     createHandler,
-    formatWaitlistMessage,
     verifySignature,
 } = require('../lib/webhookServer');
 
@@ -87,208 +86,41 @@ describe('verifySignature', () => {
     });
 });
 
-describe('formatWaitlistMessage', () => {
-    test('joined_waitlist includes title and url', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'joined_waitlist',
-            event_title: 'Open Play - Advanced',
-            event_url: 'https://example.com/events/abc',
-            matched_time: '7:00pm - 9:00pm',
-        });
-        expect(msg).toMatch(/Joined waitlist.*Open Play - Advanced/);
-        expect(msg).toMatch(/7:00pm - 9:00pm/);
-        expect(msg).toMatch(/example\.com\/events\/abc/);
-    });
-
-    test('trigger_signed_up mentions signup', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'trigger_signed_up',
-            event_title: 'Open Play - Advanced',
-            signup_url: 'https://example.com/events/abc/signup',
-        });
-        expect(msg).toMatch(/Signed up from waitlist.*Open Play - Advanced/);
-        expect(msg).toMatch(/\/signup/);
-    });
-
-    test('trigger_sold_out mentions still sold out', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'trigger_sold_out',
-            event_title: 'Open Play - Advanced',
-            event_url: 'https://example.com/events/abc',
-        });
-        expect(msg).toMatch(/still sold out.*Open Play - Advanced/);
-        expect(msg).toMatch(/Staying on the waitlist/);
-    });
-
-    test('trigger_failed includes error', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'trigger_failed',
-            event_title: 'Open Play - Advanced',
-            error: 'network_timeout',
-        });
-        expect(msg).toMatch(/Waitlist trigger failed/);
-        expect(msg).toMatch(/network_timeout/);
-    });
-
-    test('trigger_blocked_non_open_play warns auto-signup was refused', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'trigger_blocked_non_open_play',
-            event_title: 'Intermediate Three and Me with Coach Nick',
-            event_url: 'https://example.com/events/coach',
-        });
-        expect(msg).toMatch(/Auto-signup blocked.*Coach Nick/);
-        expect(msg).toMatch(/reserved for Open Play/);
-        expect(msg).toMatch(/manually/);
-        expect(msg).toMatch(/https:\/\/example\.com\/events\/coach/);
-    });
-
-    test('unknown kind falls back to generic format', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'something_weird',
-            event_title: 'Open Play - Advanced',
-        });
-        expect(msg).toMatch(/Pickleball update.*Open Play - Advanced/);
-    });
-
-    test('signed_up_direct is a signup message (not waitlist)', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'signed_up_direct',
-            event_title: 'Open Play - Advanced',
-            event_url: 'https://example.com/events/abc',
-            matched_time: 'Sat, 4/25 | 7am-9am PDT',
-        });
-        expect(msg).toMatch(/^\*\*Signed up:\*\* Open Play - Advanced/);
-        expect(msg).not.toMatch(/waitlist/i);
-        expect(msg).toMatch(/Sat, 4\/25/);
-    });
-
-    test('already_signed_up_direct includes title and url', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'already_signed_up_direct',
-            event_title: 'Open Play - Intermediate',
-            event_url: 'https://example.com/events/xyz',
-        });
-        expect(msg).toMatch(/Already signed up.*Open Play - Intermediate/);
-    });
-
-    test('signup_failed_direct surfaces the error', () => {
-        const msg = formatWaitlistMessage({
-            kind: 'signup_failed_direct',
-            event_title: 'Open Play - Advanced',
-            error: 'signup_unverified',
-        });
-        expect(msg).toMatch(/Signup failed.*Open Play - Advanced/);
-        expect(msg).toMatch(/signup_unverified/);
-    });
-});
-
+// The auth flow every signed route shares, driven through /api/messages/send
+// (its handler's own behaviour is messagesWebhook.test.js's).
 describe('createHandler', () => {
-    function mockDiscordClient(channelSend) {
-        return {
-            channels: {
-                fetch: jest.fn(async () => ({ send: channelSend })),
-            },
-        };
-    }
+    const handler = () =>
+        createHandler({ discordClient: { channels: { fetch: jest.fn() } }, eventsSecret: SECRET });
 
     test('404 for wrong path', async () => {
-        const handler = createHandler({
-            discordClient: mockDiscordClient(jest.fn()),
-            channelId: 'channel-1',
-            secret: SECRET,
-        });
-        const { status, body } = await postWithHandler(handler, '/wrong', {});
+        const { status, body } = await postWithHandler(handler(), '/wrong', {});
         expect(status).toBe(404);
         expect(body.error).toBe('not_found');
     });
 
-    test('401 without signature', async () => {
-        const handler = createHandler({
-            discordClient: mockDiscordClient(jest.fn()),
-            channelId: 'channel-1',
-            secret: SECRET,
+    test('404 for a route none of whose callers has a secret set', async () => {
+        const unconfigured = createHandler({ discordClient: {} });
+        const payload = { text: 'x' };
+        const { status } = await postWithHandler(unconfigured, '/api/messages/send', payload, {
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
-        const { status, body } = await postWithHandler(
-            handler,
-            '/api/pickleball/waitlist-outcome',
-            { kind: 'joined_waitlist' }
-        );
+        expect(status).toBe(404);
+    });
+
+    test('401 without signature', async () => {
+        const { status, body } = await postWithHandler(handler(), '/api/messages/send', { text: 'x' });
         expect(status).toBe(401);
         expect(body.error).toBe('invalid_signature');
     });
 
     test('401 with wrong signature', async () => {
-        const handler = createHandler({
-            discordClient: mockDiscordClient(jest.fn()),
-            channelId: 'channel-1',
-            secret: SECRET,
-        });
         const { status } = await postWithHandler(
-            handler,
-            '/api/pickleball/waitlist-outcome',
-            { kind: 'joined_waitlist' },
+            handler(),
+            '/api/messages/send',
+            { text: 'x' },
             { 'x-hadoku-signature': 'sha256=deadbeef' }
         );
         expect(status).toBe(401);
-    });
-
-    test('200 and posts to discord on valid signature', async () => {
-        const send = jest.fn(async () => ({ id: 'msg-1' }));
-        const discordClient = mockDiscordClient(send);
-        const handler = createHandler({
-            discordClient,
-            channelId: 'channel-1',
-            secret: SECRET,
-        });
-
-        const payload = {
-            kind: 'joined_waitlist',
-            event_title: 'Open Play - Advanced',
-            event_url: 'https://example.com/events/abc',
-        };
-        const rawBody = Buffer.from(JSON.stringify(payload));
-        const sig = 'sha256=' + crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex');
-
-        const { status, body } = await postWithHandler(
-            handler,
-            '/api/pickleball/waitlist-outcome',
-            payload,
-            { 'x-hadoku-signature': sig }
-        );
-        expect(status).toBe(200);
-        expect(body).toEqual({ success: true });
-        expect(discordClient.channels.fetch).toHaveBeenCalledWith('channel-1');
-        expect(send).toHaveBeenCalledTimes(1);
-        const sent = send.mock.calls[0][0];
-        expect(sent.content).toMatch(/Joined waitlist.*Open Play - Advanced/);
-    });
-
-    test('500 when channel fetch fails', async () => {
-        const discordClient = {
-            channels: {
-                fetch: jest.fn(async () => {
-                    throw new Error('unknown channel');
-                }),
-            },
-        };
-        const handler = createHandler({
-            discordClient,
-            channelId: 'channel-1',
-            secret: SECRET,
-        });
-
-        const payload = { kind: 'joined_waitlist', event_title: 't' };
-        const rawBody = Buffer.from(JSON.stringify(payload));
-        const sig = 'sha256=' + crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex');
-
-        const { status, body } = await postWithHandler(
-            handler,
-            '/api/pickleball/waitlist-outcome',
-            payload,
-            { 'x-hadoku-signature': sig }
-        );
-        expect(status).toBe(500);
-        expect(body.error).toBe('discord_post_failed');
     });
 });
 

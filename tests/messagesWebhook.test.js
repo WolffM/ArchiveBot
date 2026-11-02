@@ -15,7 +15,8 @@ const { mirrorToLedger, mirrorFailureToLedger } = require('../lib/ledger');
 const { validateMessagePayload, MAX_CONTENT_LENGTH } = require('../lib/messageWebhook');
 
 const EVENTS_SECRET = 'events-secret-value';
-const PICKLEBALL_SECRET = 'test-secret-value';
+// A secret no caller holds: a request signed with it must be refused.
+const WRONG_SECRET = 'test-secret-value';
 const GUILD_ID = 'test-guild-messages';
 const CHANNEL_ID = 'chan-messages-1';
 const OTHER_GUILD_CHANNEL_ID = 'chan-elsewhere-1';
@@ -103,8 +104,6 @@ function mockClient() {
 function makeHandler(discordClient, { eventsSecret = EVENTS_SECRET } = {}) {
     return createHandler({
         discordClient,
-        channelId: null,
-        secret: PICKLEBALL_SECRET,
         eventsSecret,
     });
 }
@@ -236,7 +235,7 @@ describe('POST /api/messages/send', () => {
 
     test('401 with a signature from the wrong secret', async () => {
         const { client } = mockClient();
-        const res = await post(makeHandler(client), validPayload(), PICKLEBALL_SECRET);
+        const res = await post(makeHandler(client), validPayload(), WRONG_SECRET);
         expect(res.status).toBe(401);
     });
 

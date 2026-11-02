@@ -8,7 +8,8 @@ const { createMockGuild, createMockChannel, createMockCollection } = require('./
 const scheduler = require('../lib/scheduler');
 
 const EVENTS_SECRET = 'events-secret-value';
-const PICKLEBALL_SECRET = 'test-secret-value';
+// A secret no caller holds: a request signed with it must be refused.
+const WRONG_SECRET = 'test-secret-value';
 const GUILD_ID = 'test-guild-events';
 const CHANNEL_ID = 'chan-events-1';
 
@@ -102,8 +103,6 @@ function mockClient(guild) {
 function makeHandler(guild) {
     return createHandler({
         discordClient: mockClient(guild),
-        channelId: null,
-        secret: PICKLEBALL_SECRET,
         eventsSecret: EVENTS_SECRET,
     });
 }
@@ -126,8 +125,6 @@ describe('POST /api/events/create', () => {
     test('404 when the events secret is not configured', async () => {
         const handler = createHandler({
             discordClient: mockClient(createMockGuild({ id: GUILD_ID })),
-            channelId: 'chan',
-            secret: PICKLEBALL_SECRET,
             eventsSecret: null,
         });
         const payload = validPayload();
@@ -144,11 +141,11 @@ describe('POST /api/events/create', () => {
         expect(res.body.error).toBe('invalid_signature');
     });
 
-    test('401 with a signature from the wrong (pickleball) secret', async () => {
+    test('401 with a signature from a secret no caller holds', async () => {
         const handler = makeHandler(createMockGuild({ id: GUILD_ID }));
         const payload = validPayload();
         const res = await postWithHandler(handler, '/api/events/create', payload, {
-            'x-hadoku-signature': signBody(JSON.stringify(payload), PICKLEBALL_SECRET),
+            'x-hadoku-signature': signBody(JSON.stringify(payload), WRONG_SECRET),
         });
         expect(res.status).toBe(401);
     });
@@ -323,22 +320,13 @@ describe('POST /api/events/create', () => {
         expect(guild.scheduledEvents.create).not.toHaveBeenCalled();
     });
 
-    test('pickleball route still authenticates with its own secret only', async () => {
-        const channelSend = jest.fn().mockResolvedValue(undefined);
-        const handler = createHandler({
-            discordClient: {
-                channels: { fetch: jest.fn(async () => ({ send: channelSend })) },
-            },
-            channelId: 'pb-chan',
-            secret: PICKLEBALL_SECRET,
-            eventsSecret: EVENTS_SECRET,
-        });
-        const payload = { kind: 'joined_waitlist', event_title: 'Pickleball' };
+    test('the retired pickleball route is gone, signed or not', async () => {
+        const handler = makeHandler(createMockGuild({ id: GUILD_ID }));
+        const payload = { kind: 'joined_waitlist', event_title: 'x' };
         const res = await postWithHandler(handler, '/api/pickleball/waitlist-outcome', payload, {
-            'x-hadoku-signature': signBody(JSON.stringify(payload), PICKLEBALL_SECRET),
+            'x-hadoku-signature': signBody(JSON.stringify(payload)),
         });
-        expect(res.status).toBe(200);
-        expect(channelSend).toHaveBeenCalled();
+        expect(res.status).toBe(404);
     });
 });
 
@@ -410,8 +398,6 @@ describe('POST /api/events/channels', () => {
     test('404 when the events secret is not configured', async () => {
         const handler = createHandler({
             discordClient: mockClient(guildWithChannels()),
-            channelId: 'chan',
-            secret: PICKLEBALL_SECRET,
             eventsSecret: null,
         });
         const payload = { source: 'rally', timestamp: Date.now() };
@@ -431,11 +417,11 @@ describe('POST /api/events/channels', () => {
         expect(res.body.error).toBe('invalid_signature');
     });
 
-    test('401 with a signature from the wrong (pickleball) secret', async () => {
+    test('401 with a signature from a secret no caller holds', async () => {
         const handler = makeHandler(guildWithChannels());
         const payload = { source: 'rally', timestamp: Date.now() };
         const res = await postWithHandler(handler, '/api/events/channels', payload, {
-            'x-hadoku-signature': signBody(JSON.stringify(payload), PICKLEBALL_SECRET),
+            'x-hadoku-signature': signBody(JSON.stringify(payload), WRONG_SECRET),
         });
         expect(res.status).toBe(401);
     });
@@ -554,8 +540,6 @@ describe('POST /api/events/channels', () => {
         const client = mockClient(guild);
         const handler = createHandler({
             discordClient: client,
-            channelId: null,
-            secret: PICKLEBALL_SECRET,
             eventsSecret: EVENTS_SECRET,
         });
         const payload = { source: 'rally', timestamp: Date.now(), guild_id: 'some-other-guild' };

@@ -150,7 +150,7 @@ describe('logger', () => {
         });
 
         it('accepts a bare string where a call site never had an Error', () => {
-            const log = loadLogger().createLogger('pickleball');
+            const log = loadLogger().createLogger('scheduler');
             const { err } = capture(() => log.error('runSignupAction', 'API returned failure'));
 
             expect(err).toContain('error="API returned failure"');
