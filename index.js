@@ -10,6 +10,7 @@ const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
 const { startWebhookServer } = require('./lib/webhookServer');
 const meetingSpaceReaper = require('./lib/meetingSpaceReaper');
+const cardtableMembers = require('./lib/cardtableMembers');
 const { createLogger } = require('./utils/logger');
 const { clientOptions } = require('./utils/clientOptions');
 const { assertOutputRoot } = require('./lib/paths');
@@ -268,6 +269,12 @@ client.on('guildMemberAdd', async member => {
         await meetingSpaceReaper.handleMemberAdd(member);
     } catch (err) {
         log.error('guildMemberAdd', err, { guildId: member.guild?.id });
+    }
+    // Someone who linked their hadoku account before joining the cardtable guild.
+    try {
+        await cardtableMembers.handleLinkedJoin(member);
+    } catch (err) {
+        log.error('guildMemberAdd_linked', err, { guildId: member.guild?.id });
     }
 });
 

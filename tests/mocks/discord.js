@@ -411,17 +411,28 @@ function createMockLayoutGuild({ id = 'guild-layout', ownerId = '100000000000000
             },
             fetchMe: jest.fn(),
             list: createMockCollection(),
-            fetch: jest.fn(async () => guild.members.list),
+            // With an id, one member or Discord's 10007 Unknown Member; without, all of them.
+            fetch: jest.fn(async (memberId) => {
+                if (memberId === undefined) return guild.members.list;
+                const member = guild.members.list.get(memberId);
+                if (!member) throw Object.assign(new Error('Unknown Member'), { code: 10007 });
+                return member;
+            }),
         },
         failOn(predicate) { failPredicate = predicate; },
-        addMember(memberId, { bot = false } = {}) {
+        addMember(memberId, { bot = false, manageable = true, nickname = null } = {}) {
             const roles = new Set();
             const member = {
                 id: memberId,
                 user: { id: memberId, bot },
+                guild,
+                manageable,
+                nickname,
+                setNickname: jest.fn(async (nick) => { member.nickname = nick; return member; }),
                 roles: {
                     cache: { has: (rid) => roles.has(rid) },
                     add: jest.fn(async (rid) => { roles.add(rid); }),
+                    remove: jest.fn(async (rid) => { roles.delete(rid); }),
                 },
             };
             guild.members.list.set(memberId, member);

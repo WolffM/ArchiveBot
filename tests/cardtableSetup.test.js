@@ -85,8 +85,8 @@ describe('applyCardtableLayout on a fresh guild', () => {
         expect(guild.channelNamed('general').overwrites.size).toBe(0);
     });
 
-    test('creates Player and Admin with no Discord permissions', () => {
-        expect(guild.roles.create).toHaveBeenCalledTimes(2);
+    test('creates Player, Admin and Linked with no Discord permissions', () => {
+        expect(guild.roles.create.mock.calls.map((c) => c[0].name)).toEqual(['Player', 'Admin', 'Linked']);
         for (const call of guild.roles.create.mock.calls) {
             expect(call[0].permissions).toEqual([]);
             expect(call[0].mentionable).toBe(false);

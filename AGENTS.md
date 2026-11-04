@@ -62,7 +62,8 @@ In central mode it follows the lease: see **Central mode**.
   `GET /api/messages/recent`; see **cardtable guild**.
   Unset = cardtable-signed requests 401; meet is unaffected.
 - `ARCHIVEBOT_PREFS_WEBHOOK_SECRET` — hadoku_site prefs-api's HMAC on `/api/discord/*` (Discord
-  identity for hadoku avatars: consent URL, code exchange, current avatars by id; `lib/discordIdentity.js`).
+  identity for hadoku avatars: consent URL, code exchange, current avatars by id; `lib/discordIdentity.js`;
+  and linked members' role + nickname in the cardtable guild, `lib/cardtableMembers.js`).
   Unset = those routes 404.
 - `DISCORD_CLIENT_SECRET` — this application's OAuth2 client secret, for the code exchange. Unset =
   Discord linking answers 503 (avatar lookups by id still work: they use the bot token). Every
@@ -149,7 +150,7 @@ mirroring every ERROR as well would both duplicate those and bury them.
 `/setup layout:cardtable` (admin; the guild owner always counts as admin) converges a
 guild onto hadoku-cardtable's layout: Info (#announcements, #events, both read-only),
 Table (#general, #looking-for-game, #bugs-and-feedback), Voice (Table 1, Table 2), the
-Player and Admin roles, and a permanent invite whose joins get Player. Safe to re-run;
+Player, Admin and Linked roles, and a permanent invite whose joins get Player. Safe to re-run;
 on failure it deletes what that run created. `lib/cardtableSetup.js`.
 
 A successful run writes `Output/{guildId}/cardtable.json`, and that file IS the binding:
@@ -157,7 +158,18 @@ a request signed with `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` is pinned to that gu
 (another `guild_id` → 403), messages default to #announcements and event announcements
 to #events, and only that caller may send `embeds` on `/api/messages/send`
 (validated subset in `lib/messageWebhook.js` `validateEmbeds`). The setup refuses to
-bind a second guild. The same file reserves `links` for `/link` identity linking.
+bind a second guild.
+
+**Linked members.** The same file's `links` maps a Discord user id to the hadoku display
+name of the account it is linked to. prefs-api writes it with `POST /api/discord/members/sync
+{set: [{id, name}], remove: [id]}` (≤100 each, prefs secret): on link, on unlink, and in
+batches from its daily avatar refresh, which carries renames. A linked member gets the
+**Linked** role and that name as their server nickname; unlink takes the role away and
+clears the nickname only if it is still ours. A link stored before the person joins is
+applied on `guildMemberAdd`, and a `/setup` run applies every stored link. Discord never
+lets a bot rename the guild owner or anyone above the bot's role: those get the role and
+keep their nickname. The bot needs **Manage Nicknames** (the setup refuses without it).
+`lib/cardtableMembers.js`.
 
 `GET /api/messages/recent?channel=general&limit=5` takes cardtable's secret only (rally-api has no business reading
 that chat), signed as an HMAC over the raw query string. It answers the bound guild's
