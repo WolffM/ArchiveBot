@@ -353,4 +353,32 @@ describe('reconcile', () => {
         await ds.put(`${G}/${CH}/batches/1800000000000.json`, '[]', { createOnly: true });
         expect((await reconcileArchive(ds, { root, ingest })).fetched).toBe(1);
     });
+
+    test('a renamed channel holds records in each of its folders; none is fetched again into another', async () => {
+        const ds = store();
+        const G = '1200000000000000102';
+        const CH = '1100000000000000102';
+        // As production: the channel was archived as old_ then as new_, and both folders stayed.
+        write(`${G}/old_${CH}/archive_1600000000000.json`, '[]');
+        write(`${G}/old_${CH}/authors_1600000000000.json`, '{}');
+        write(`${G}/new_${CH}/archive_1700000000000.json`, '[]');
+        for (const [key, body] of [
+            [`${G}/${CH}/names/old_${CH}`, `old_${CH}`],
+            [`${G}/${CH}/names/new_${CH}`, `new_${CH}`],
+            [`${G}/${CH}/batches/1600000000000.json`, '[]'],
+            [`${G}/${CH}/authors/1600000000000.json`, '{}'],
+            [`${G}/${CH}/batches/1700000000000.json`, '[]'],
+        ]) await ds.put(key, body, { createOnly: true });
+
+        const ingest = jest.fn(async () => {});
+        expect((await reconcileArchive(ds, { root, ingest })).fetched).toBe(0);
+        expect(ingest).not.toHaveBeenCalled();
+        expect(fs.readdirSync(path.join(root, G, `old_${CH}`)).sort()).toEqual(['archive_1600000000000.json', 'authors_1600000000000.json']);
+        expect(fs.readdirSync(path.join(root, G, `new_${CH}`))).toEqual(['archive_1700000000000.json']);
+
+        // A record neither folder holds goes in the store's current name.
+        await ds.put(`${G}/${CH}/batches/1800000000000.json`, '[]', { createOnly: true });
+        expect((await reconcileArchive(ds, { root, ingest })).fetched).toBe(1);
+        expect(fs.existsSync(path.join(root, G, `new_${CH}`, 'archive_1800000000000.json'))).toBe(true);
+    });
 });
