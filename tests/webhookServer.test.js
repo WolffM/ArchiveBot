@@ -144,12 +144,12 @@ describe('GET /health', () => {
 
     test('answers the checkout commit, unauthenticated, while Discord is ready', async () => {
         const handler = createHandler({ discordClient: { isReady: () => true } });
-        await expect(get(handler, '/health')).resolves.toEqual({ status: 200, body: { status: 'ok', commit: head, discord: 'ready' } });
+        await expect(get(handler, '/health')).resolves.toEqual({ status: 200, body: { status: 'ok', service: 'archive-bot', commit: head, discord: 'ready' } });
     });
 
     test('is 503 while the Discord session is down', async () => {
         const handler = createHandler({ discordClient: { isReady: () => false } });
-        await expect(get(handler, '/health')).resolves.toEqual({ status: 503, body: { status: 'not_ready', commit: head, discord: 'not_ready' } });
+        await expect(get(handler, '/health')).resolves.toEqual({ status: 503, body: { status: 'not_ready', service: 'archive-bot', commit: head, discord: 'not_ready' } });
     });
 
     test('is only a GET', async () => {

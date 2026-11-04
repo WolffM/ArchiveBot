@@ -239,7 +239,8 @@ describe('/health follows the lease', () => {
         const handler = createHandler({ discordClient: { isReady: () => ready }, eventsSecret: 's', central: c, commit: 'abc' });
 
         const waiting = await get(handler, '/health');
-        expect(waiting).toEqual({ status: 503, body: { detail: { central: { state: 'standby', holder: 'test-0' } } } });
+        // Nothing has polled the lease yet, so the holder is not known: omitted.
+        expect(waiting).toEqual({ status: 503, body: { detail: { central: { state: 'standby', self: 'test-0' } } } });
         // Every route waits, not only /health.
         expect((await get(handler, '/api/messages/recent?channel=general')).status).toBe(503);
 
@@ -258,14 +259,44 @@ describe('/health follows the lease', () => {
         const active = await get(handler, '/health');
         expect(active.status).toBe(200);
         expect(active.body).toEqual({
-            status: 'ok', commit: 'abc', discord: 'ready',
-            central: { state: 'active', holder: 'test-0', committed_s_ago: expect.any(Number) },
+            status: 'ok', service: 'archive-bot', commit: 'abc', discord: 'ready',
+            central: { state: 'active', self: 'test-0', holder: 'test-0', committed_s_ago: expect.any(Number) },
         });
     });
 
-    test('on-node, /health is as it was: no central block', async () => {
+    test('a standby reports itself as self and the node that holds the lease as holder', async () => {
+        const first = central({ holder: 'node-a' });
+        await first.acquire();
+        const second = central({ holder: 'node-b' });
+        const handler = createHandler({ discordClient: { isReady: () => false }, central: second, commit: 'abc' });
+
+        const waiting = second.acquire();
+        await until(() => second.status().holder !== undefined);
+        const res = await get(handler, '/health');
+        expect(res).toEqual({ status: 503, body: { detail: { central: { state: 'standby', self: 'node-b', holder: 'node-a' } } } });
+        expect(first.status()).toMatchObject({ self: 'node-a', holder: 'node-a' });
+
+        // The holder hands it back: the standby takes it and now names itself.
+        await first.stop();
+        await waiting;
+        expect(second.status()).toMatchObject({ self: 'node-b', holder: 'node-b' });
+    });
+
+    test('a standby never names itself the holder, even behind its own unlapsed lease', async () => {
+        // A previous process on this node still holds the lease under this node's name.
+        await store().acquireLease('state/', { ttl: 30, holder: 'node-a' });
+        const c = central({ holder: 'node-a' });
+        let polled = 0;
+        const realInfo = c.ds.leaseInfo.bind(c.ds);
+        c.ds.leaseInfo = async (prefix) => { const info = await realInfo(prefix); polled += 1; return info; };
+        c.acquire().catch(() => {});
+        await until(() => polled >= 2);
+        expect(c.status()).toEqual({ state: 'standby', self: 'node-a' });
+    });
+
+    test('on-node, /health is as it was: no central block, the service named', async () => {
         const handler = createHandler({ discordClient: { isReady: () => true }, commit: 'abc' });
-        expect(await get(handler, '/health')).toEqual({ status: 200, body: { status: 'ok', commit: 'abc', discord: 'ready' } });
+        expect(await get(handler, '/health')).toEqual({ status: 200, body: { status: 'ok', service: 'archive-bot', commit: 'abc', discord: 'ready' } });
     });
 });
 
