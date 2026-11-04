@@ -1,8 +1,15 @@
 {
   "app": "archivebot",
   "kind": "service",
-  "slices": { "unit": { "memoryMb": 1024, "cores": 1, "steadyMb": 180 }, "max": 1 },
-  "runtime": { "manager": "pm2", "node": ">=22.12", "native": ["canvas", "sqlite3"] },
+  "slices": {
+    "unit": { "memoryMb": 1024, "cores": 1, "steadyMb": 180 },
+    "max": 1
+  },
+  "runtime": {
+    "manager": "pm2",
+    "node": ">=22.12",
+    "native": ["canvas", "sqlite3"]
+  },
   "network": {
     "ingress": "tunnel",
     "hostname": "archivebot.hadoku.me",
@@ -18,8 +25,19 @@
     ]
   },
   "disk": { "stateGb": 10, "growthGbPerMonth": 2 },
-  "availability": { "noticeMin": 15, "stateful": true, "singleton": true, "coldStartS": 300, "fence": "data-lease", "standby": 1 },
-  "placement": { "require": ["wired", "pm2-peer", "label:data-peer"], "auto": true },
+  "availability": {
+    "noticeMin": 15,
+    "stateful": true,
+    "singleton": true,
+    "coldStartS": 300,
+    "fence": "data-lease",
+    "standby": 1,
+    "backstop": "cold"
+  },
+  "placement": {
+    "require": ["wired", "pm2-peer", "label:data-peer"],
+    "auto": true
+  },
   "isolation": { "ciMayRead": false, "advisoryUntil": 0 },
   "contact": "WolffM/hadoku-fleet-manager-private#136"
 }
