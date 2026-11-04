@@ -40,9 +40,11 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 ## Environment variables
 
 In production these are injected by the PM2 wrapper from the vault — see **Auth
-& secrets** below. `.env` (via `dotenv`) is a local-dev convenience only; the
-wrapper's `vaultKeys` map in `../hadoku_site/services/pm2/archive-bot-wrapper.mjs`
-is the authoritative list.
+& secrets** below. `.env` (via `dotenv`) is a local-dev convenience only, and it
+is read only while `HADOKU_DATA_URL` is unset: the wrapper always sets that, so a
+node-local `.env` can never fill in a setting in production (a standby on another
+node would not have it). The wrapper's `vaultKeys` map in
+`../hadoku_site/services/pm2/archive-bot-wrapper.mjs` is the authoritative list.
 
 Core:
 - `DISCORD_TOKEN` — bot token
@@ -50,9 +52,11 @@ Core:
 
 Webhook server. The server starts if ANY route is fully configured; a route
 whose config is missing answers 404 rather than taking the others down. With
-none configured it does not start at all. `GET /health` (unauthenticated) answers
+none configured it does not start at all (except in central mode, where it always
+listens). `GET /health` (unauthenticated) answers
 `{status, commit, discord}`, 200 while the Discord session is ready, 503 while not;
 `commit` is the checkout's HEAD, which hadoku_site's deploy and service move check.
+In central mode it follows the lease: see **Central mode**.
 - `ARCHIVEBOT_EVENTS_WEBHOOK_SECRET` — HMAC for `/api/events/*` and `/api/messages/send`, shared with rally-api
 - `ARCHIVEBOT_CARDTABLE_WEBHOOK_SECRET` — cardtable's own HMAC on the same four routes, plus
   `GET /api/messages/recent`; see **cardtable guild**.
@@ -77,6 +81,8 @@ Other:
   root means its disk is unmounted and the mount point is an empty dir on `/`.
 - `HADOKU_DATA_URL` / `HADOKU_SERVICE_KEY` — dataplatform's data endpoint and the bot's service key.
   Both set = the importer runs. Either unset = it doesn't.
+- `ARCHIVEBOT_STATE_STORE` — `local` (default) or `central`. `central` needs both of the above and
+  turns on the lease, the takeover reconcile and the standby; see **Central mode**.
 - `LOG_LEVEL` — `DEBUG|INFO|WARN|ERROR` (case-insensitive), defaults to `INFO`.
   An unrecognised value falls back to `INFO` rather than silencing the service.
 
@@ -189,13 +195,15 @@ state/<path below the output root>                     the bot's working state (
   listing. Attachments stay in the store. It asks the store only when something is missing, so a whole
   host starts with the endpoint down; a host missing something it cannot fetch exits and PM2 retries.
 - `lib/archiveImport.js` copies local files up, 30 s after start, every 10 min while the key is
-  unbound, then daily. Every PUT sends its sha256 (the store refuses a mismatch), so `uploaded`/`same`
+  unbound, then daily, and within 2 min of every archive run (`requestSoon`). Every PUT sends its sha256 (the store refuses a mismatch), so `uploaded`/`same`
   in `Output/import/manifest.jsonl` is a store-verified byte match. A key holding other bytes is a
   `conflict`, never overwritten. **It never deletes local files.**
 - `lib/stateSync.js` keeps `state/…` current every 10 min: scheduled/sentMessages/spaces/cardtable JSON,
   the tasklist, and any other non-archive file under the root. The local file stays the working copy and
   a running bot never reads state back from the store, so reminders fire with the endpoint down. Writes are
   compare-and-swap against the version this process last wrote; another writer is logged as a conflict.
+  A SIGTERM runs one last pass (capped at 1 s, inside PM2's kill timeout). In central mode the pass
+  runs every 15 s under the lease token and tombstones removed files (see **Central mode**).
 - The binding is the operator's: Command Station → Account → Data bindings (`archivebot-service-key`).
 - Attachments are `attachments/<id>_<name>` on disk. Until 2026-10-25 they were by name alone, and
   same-named files overwrote each other; `/archiverepair` recovers what Discord still has.
@@ -203,9 +211,60 @@ state/<path below the output root>                     the bot's working state (
   every archived guild inside the running bot; progress is `repairChannel`/`repairGuild` in its log.
   An attachment the import manifest shows the store holding counts as `stored`, not missing, so a
   repair after `scripts/prune-imported.js --apply` downloads nothing again.
-- `tests/dataStore.test.js` and `tests/archiveImport*.test.js` run dataplatform's REAL listener on a
-  scratch store (`tests/support/`), so they need `~/srv/hadoku-dataplatform/server/.venv`
-  (`DATAPLATFORM_SERVER` overrides). Without it they fail; they do not skip.
+- `tests/dataStore.test.js`, `tests/archiveImport*.test.js`, `tests/central*.test.js` and the state
+  tests run dataplatform's REAL listener on a scratch store (`tests/support/`), so they need
+  `~/srv/hadoku-dataplatform/server/.venv` (`DATAPLATFORM_SERVER` overrides). Without it they fail;
+  they do not skip.
+
+## Central mode (hot standby)
+
+`ARCHIVEBOT_STATE_STORE=central` meets the fleet's off-node contract
+(`hadoku-fleet-manager/docs/service-state.md`): the store is the truth, the disk a working copy,
+and a second copy of the bot on another node waits as a standby. `hosting.json` gets
+`fence: "data-lease"`, `standby: 1` and `label:data-peer` only AT the cutover, after the
+rehearsal and once the wrapper sets the switch: declared earlier, the fleet would place a second
+copy beside a bot that holds no lease, and both would post to Discord. Unset, the bot runs on-node exactly as
+above. `HADOKU_DATA_URL` alone is not the switch, because the on-node bot already uses it for the
+import: flipping on it would turn the lease on with a deploy instead of a cutover.
+
+```
+standby ──lease──▶ reconciling ──store == disk──▶ starting ──Discord ready──▶ active
+```
+
+- **The lease** is `state/` in namespace `archivebot`, TTL 30 s, renewed every 10 s
+  (`lib/heldLease.js`), holder = the node's hostname. It is taken BEFORE `client.login`: a process
+  without it never logs in to Discord (two logged-in copies would post every reminder twice),
+  and the scheduler, importer and state sync only start on `clientReady`.
+- **Lost** = a renewal refused, a write refused as `lease_lost`, or no renewal confirmed for a
+  whole TTL (its own timer, so a hung request cannot hold the verdict back). Then every writer
+  stops, the Discord client is destroyed and the process exits **75**; PM2 restarts it as a
+  standby. A SIGTERM instead does a last state pass and hands the lease back, so the standby
+  takes over at once.
+- **The fence** (`DataStore.setProcessFence`): every `DataStore.fromEnv()` in the process carries
+  it. Writes under `state/` send `X-Lease-Token`; with no live lease NO write leaves the process,
+  under `state/` or outside it. The archive keys (`<guild>/…`, `log.csv`) cannot carry the token:
+  the endpoint refuses a lease on the namespace root and refuses a token on a key its lease does
+  not cover. They are create-only and sha256-checked, so a stale writer can add nothing but a
+  record it really fetched, and the in-process fence stops even that once the lease is gone.
+- **`/health`**: 503 `{detail: {central: {state, holder}}}` on EVERY path until active (states
+  `standby`, `reconciling`, `starting` read as waiting in hadoku_site's `leaseRole`; `refused`,
+  `failed`, `lost` are faults). Active: 200 `{status: "ok", commit, discord, central: {state:
+  "active", holder, committed_s_ago}}`. `committed_s_ago` counts from the last clean state pass.
+- **Takeover reconcile** (`lib/reconcile.js`), before login: `storeRestore` first (a fresh host),
+  then `state/` with the store winning (a local file that differs or that the store lacks moves
+  to `.central/orphans/<stamp>/`, never deleted), then the archive through the change feed
+  (cursor in `.central/cursor.json`; records the store gained are fetched into the channel's
+  folder and ingested). **An empty `state/` beside a non-empty local state tree refuses to
+  start**: that is a node pointed at the store before the on-node bot synced it.
+- **Writes**: state goes up every 15 s by compare-and-swap with the token, and a file the bot
+  removed becomes a tombstone (else the next takeover would bring it back). That 15 s is the
+  state's loss bound. Archive batches go up within 2 min of the run that wrote them
+  (`archive.onArchived` → `archiveImport.requestSoon`), and the daily sweep catches the rest;
+  anything not yet imported is re-fetchable from Discord by the next archive run.
+- **Cutover**: the on-node bot keeps `state/` current and, since this change, flushes it on
+  SIGTERM. So: confirm `state/` is populated, set `ARCHIVEBOT_STATE_STORE=central` in the
+  wrapper's env, restart. The first central start reconciles against what the old process
+  flushed. Rehearse against a copy of real data first (`service-state.md`, "How to request it").
 
 ## Dev commands
 

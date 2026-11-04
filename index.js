@@ -1,5 +1,9 @@
 // First, so module-level paths read at require time (lib/paths.js) see .env.
-require('dotenv').config();
+// Local development only: in production the PM2 wrapper injects every setting
+// from the vault (HADOKU_DATA_URL among them), and a node-local .env must not
+// fill in anything the wrapper left out — a standby on another node would not
+// have it (hadoku-fleet-manager docs/service-state.md, item 8).
+if (!process.env.HADOKU_DATA_URL) require('dotenv').config();
 const { Client, SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const { createCommandsList, standardCommandsList } = require('./commands');
 const permissions = require('./lib/permissions');
@@ -14,6 +18,9 @@ const archiveImport = require('./lib/archiveImport');
 const archiveRepair = require('./lib/archiveRepair');
 const stateSync = require('./lib/stateSync');
 const { restoreFromStore } = require('./lib/storeRestore');
+const archive = require('./lib/archive');
+const { Central, centralMode, bootCentral, handleLeaseLost } = require('./lib/central');
+const { reconcileState, reconcileArchive } = require('./lib/reconcile');
 
 const log = createLogger('bot');
 
@@ -53,6 +60,19 @@ const commandCategories = {
 };
 
 const client = new Client(clientOptions);
+
+// Central mode (lib/central.js): the store is the truth, one lease fences the
+// writer, and a standby waits without logging in. Null: on-node, as before.
+let central = null;
+try {
+    if (centralMode()) {
+        central = new Central({ ds: DataStore.fromEnv() });
+        DataStore.setProcessFence(central.fence());
+    }
+} catch (err) {
+    log.error('central_mode', err);
+    process.exit(1);
+}
 
 /**
  * Helper function to add options to a slash command based on option type
@@ -180,9 +200,16 @@ client.once('clientReady', async () => {
 
     // Copy the archive into dataplatform's data endpoint (lib/archiveImport.js),
     // and keep the store's copy of the bot's state current (lib/stateSync.js).
+    // In central mode both stores carry the lease fence (DataStore.fromEnv).
     if (DataStore.configured()) {
         archiveImport.startImporter(DataStore.fromEnv());
-        stateSync.startStateSync(DataStore.fromEnv());
+        stateSync.startStateSync(DataStore.fromEnv(), central
+            ? { central: true, onCommitted: () => central.committed() }
+            : {});
+    }
+    if (central) {
+        central.serving();
+        log.success('serving', central.status());
     }
 
     // Global commands (visible to everyone)
@@ -207,8 +234,9 @@ client.once('clientReady', async () => {
 
     // Start the inbound webhook server for cross-service calls (rally-api,
     // cardtable, prefs-api → ArchiveBot → Discord). Skipped, with a warning,
-    // when no caller's secret is set.
-    global.__webhookServer = startWebhookServer({ discordClient: client });
+    // when no caller's secret is set. In central mode it has been listening
+    // since boot, answering 503 until now.
+    if (!central) global.__webhookServer = startWebhookServer({ discordClient: client });
 
     // Seed the invite-use cache. The invite→role binding works by DIFFING use
     // counts across a join, so with no prior snapshot the first guest of every
@@ -412,16 +440,46 @@ module.exports = {
     registerGuildCommands
 };
 
+/** Stop everything that writes. Resolves once a state pass already running has finished. */
+function stopWriters() {
+    scheduler.stopScheduler();
+    archiveImport.stopImporter();
+    return stateSync.stopStateSync();
+}
+
+// PM2's kill timeout is 1.6 s; the last state pass gets most of it.
+const FINAL_SYNC_MS = 1000;
+
+/**
+ * One last state pass, so the store holds what this process wrote since the
+ * previous one: in central mode the next holder reconciles from it, and on-node
+ * it keeps the store's copy current for a cutover.
+ */
+async function finalSync() {
+    if (!DataStore.configured() || (central && central.token() === null)) return;
+    const ds = DataStore.fromEnv();
+    try {
+        await Promise.race([
+            stateSync.runSync(ds, { deletes: Boolean(central) }),
+            new Promise((r) => { setTimeout(r, FINAL_SYNC_MS).unref(); }),
+        ]);
+    } finally {
+        ds.close();
+    }
+}
+
 // Graceful shutdown handling for PM2
 async function shutdown(signal) {
     log.info('shutdown', { signal });
     try {
+        await stopWriters();
+        await finalSync();
+        // Handed back rather than left to lapse: the standby takes over now,
+        // not a TTL from now.
+        if (central) await central.stop();
         if (global.__webhookServer) {
             await new Promise((resolve) => global.__webhookServer.close(resolve));
         }
-        scheduler.stopScheduler();
-        archiveImport.stopImporter();
-        stateSync.stopStateSync();
         client.destroy();
         log.success('shutdown', { message: 'Discord client disconnected' });
         process.exit(0);
@@ -470,10 +528,46 @@ async function restore() {
     }
 }
 
-restore()
-    .then(() => client.login(process.env.DISCORD_TOKEN))
-    .then(() => log.success('login', { message: 'Login successful' }))
+// New archive batches go up within minutes of the run that wrote them.
+archive.onArchived(() => archiveImport.requestSoon());
+
+async function login() {
+    await client.login(process.env.DISCORD_TOKEN);
+    log.success('login', { message: 'Login successful' });
+}
+
+/**
+ * Central mode: /health listens at once (503 while waiting), then the lease,
+ * then the reconcile against the store, and only then the Discord login. No
+ * scheduler, reminder or archive can run before it: they start on clientReady.
+ */
+async function startCentral() {
+    global.__webhookServer = startWebhookServer({ discordClient: client, central });
+    central.onLost = (why) => handleLeaseLost({ why, stopWriters, client, server: global.__webhookServer });
+    await bootCentral({
+        central,
+        login,
+        reconcile: async (ds) => {
+            // A fresh host first gets its state and archive indexes as
+            // on-node; then the store wins for state, and the change feed
+            // brings whatever archive records this node has not seen.
+            const restored = await restoreFromStore(ds);
+            const state = await reconcileState(ds);
+            const archived = await reconcileArchive(ds, {
+                ingest: async (guildId) => {
+                    await archive.initializeDatabaseIfNeeded(guildId);
+                    await archive.ingestOrphanedFiles(guildId);
+                },
+            });
+            return { ...restored, ...state, fetched: archived.fetched };
+        },
+    });
+}
+
+(central ? startCentral() : restore().then(login))
     .catch(err => {
+        // A standby told to stop while it waited: shutdown() exits.
+        if (central && central.stopping) return;
         log.error('startup', err);
         process.exit(1);
     });

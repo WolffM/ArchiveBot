@@ -163,6 +163,30 @@ describe('runImport, as the bot schedules it', () => {
         await seed();
         expect(await runImport(ds)).toBe(24 * 60 * 60 * 1000);
     });
+
+    test('an archive run pulls the next import in to two minutes, never pushes one out', async () => {
+        const { startImporter, stopImporter, requestSoon } = require('../lib/archiveImport');
+        const { DataError } = require('../lib/dataStore');
+        // Unbound: each run is one HEAD, then the ten-minute retry.
+        const fake = { head: jest.fn(async () => { throw new DataError(403, {}, 'unbound'); }) };
+        jest.useFakeTimers();
+        try {
+            requestSoon(); // not started: nothing to pull in
+            startImporter(fake);
+            requestSoon(); // first run is due in 30 s already: left alone
+            await jest.advanceTimersByTimeAsync(30 * 1000);
+            expect(fake.head).toHaveBeenCalledTimes(1);
+
+            requestSoon(); // next was ten minutes out
+            await jest.advanceTimersByTimeAsync(2 * 60 * 1000 - 1);
+            expect(fake.head).toHaveBeenCalledTimes(1);
+            await jest.advanceTimersByTimeAsync(1);
+            expect(fake.head).toHaveBeenCalledTimes(2);
+        } finally {
+            stopImporter();
+            jest.useRealTimers();
+        }
+    });
 });
 
 describe('scripts/prune-imported.js', () => {
