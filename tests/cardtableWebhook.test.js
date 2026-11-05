@@ -380,6 +380,78 @@ describe('mentions', () => {
     });
 });
 
+describe('editing a posted release message', () => {
+    async function posted(payload) {
+        const mock = mockClient();
+        const handler = handlerFor(mock.client);
+        const first = await post(handler, '/api/messages/send', payload);
+        expect(first.status).toBe(200);
+        const sent = mock.send.mock.calls[0][0];
+        const edit = jest.fn(async () => ({}));
+        const message = { id: 'sent-message-id', content: sent.content ?? '', embeds: sent.embeds.map((e) => ({ ...e })), edit };
+        const channel = await mock.client.channels.fetch(ANNOUNCEMENTS);
+        channel.messages.fetch = jest.fn(async (id) => {
+            if (id !== 'sent-message-id') throw new Error('Unknown Message');
+            return message;
+        });
+        return { ...mock, handler, edit, channel };
+    }
+
+    test('changes the message a send posted under the same key, and only it', async () => {
+        const payload = releasePayload();
+        const { handler, edit, send, channel } = await posted(payload);
+        const changed = { ...payload, timestamp: Date.now(), embeds: [{ ...payload.embeds[0], description: 'Corrected notes.' }] };
+        const res = await post(handler, '/api/messages/edit', changed);
+        expect(res).toEqual({ status: 200, body: { success: true, messageId: 'sent-message-id', edited: true } });
+        expect(channel.messages.fetch).toHaveBeenCalledWith('sent-message-id');
+        expect(edit).toHaveBeenCalledTimes(1);
+        expect(edit.mock.calls[0][0]).toMatchObject({ content: '', embeds: [{ description: 'Corrected notes.' }], allowedMentions: { parse: [] } });
+        expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    test('an unchanged text is not edited, so Discord does not mark it (edited)', async () => {
+        const payload = releasePayload();
+        const { handler, edit } = await posted(payload);
+        const res = await post(handler, '/api/messages/edit', { ...payload, timestamp: Date.now() });
+        expect(res.body).toMatchObject({ success: true, unchanged: true });
+        expect(edit).not.toHaveBeenCalled();
+    });
+
+    test('applies credited mentions inline, as a send does', async () => {
+        cardtableStore.saveLinks(GUILD_ID, { '111111111111111111': { name: 'the.scrubdaddy', linkedAt: '2026-11-01T00:00:00Z' } });
+        const payload = releasePayload();
+        const { handler, edit } = await posted(payload);
+        const changed = { ...payload, timestamp: Date.now(), mentions: ['the.scrubdaddy'], embeds: [{ ...payload.embeds[0], description: '- Mana floating asks first. (@the.scrubdaddy)' }] };
+        const res = await post(handler, '/api/messages/edit', changed);
+        expect(res.body).toMatchObject({ edited: true, mentioned: ['the.scrubdaddy'] });
+        expect(edit.mock.calls[0][0].embeds[0].description).toBe('- Mana floating asks first. (<@111111111111111111>)');
+        expect(edit.mock.calls[0][0].allowedMentions).toEqual({ parse: [], users: ['111111111111111111'] });
+    });
+
+    test('never posts: a key it never sent is refused', async () => {
+        const { client, send } = mockClient();
+        const res = await post(handlerFor(client), '/api/messages/edit', releasePayload());
+        expect(res).toEqual({ status: 404, body: { success: false, error: 'message_not_found' } });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    test('a message deleted from Discord is refused, not reposted', async () => {
+        const payload = releasePayload();
+        const { handler, send, channel } = await posted(payload);
+        channel.messages.fetch = jest.fn(async () => { throw new Error('Unknown Message'); });
+        const res = await post(handler, '/api/messages/edit', { ...payload, timestamp: Date.now(), embeds: [{ ...payload.embeds[0], description: 'x' }] });
+        expect(res).toEqual({ status: 404, body: { success: false, error: 'message_not_found' } });
+        expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    test('only cardtable may edit', async () => {
+        const { client, send } = mockClient();
+        const res = await post(handlerFor(client), '/api/messages/edit', releasePayload(), EVENTS_SECRET);
+        expect(res.status).toBe(401);
+        expect(send).not.toHaveBeenCalled();
+    });
+});
+
 describe('the events secret is unchanged', () => {
     test('meet still posts plain text to its default guild', async () => {
         const { client, send } = mockClient();
