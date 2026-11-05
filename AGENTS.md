@@ -150,7 +150,7 @@ mirroring every ERROR as well would both duplicate those and bury them.
 `/setup layout:cardtable` (admin; the guild owner always counts as admin) converges a
 guild onto hadoku-cardtable's layout: Info (#announcements, #events, both read-only),
 Table (#general, #looking-for-game, #bugs-and-feedback), Voice (Table 1, Table 2), the
-Player, Admin and Linked roles, and a permanent invite whose joins get Player. Safe to re-run;
+Admin and Linked roles, and a permanent invite (joins through it earn no role). Safe to re-run;
 on failure it deletes what that run created. `lib/cardtableSetup.js`.
 
 A successful run writes `Output/{guildId}/cardtable.json`, and that file IS the binding:

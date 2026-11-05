@@ -1,7 +1,7 @@
 /**
  * `/setup cardtable` against a stateful guild: what a fresh guild ends up
  * with, that a second run changes nothing, that a failure unwinds, and that a
- * join through the printed invite earns Player.
+ * join through the printed invite earns no role.
  */
 
 jest.mock('../lib/ledger', () => ({
@@ -85,29 +85,27 @@ describe('applyCardtableLayout on a fresh guild', () => {
         expect(guild.channelNamed('general').overwrites.size).toBe(0);
     });
 
-    test('creates Player, Admin and Linked with no Discord permissions', () => {
-        expect(guild.roles.create.mock.calls.map((c) => c[0].name)).toEqual(['Player', 'Admin', 'Linked']);
+    test('creates Admin and Linked with no Discord permissions', () => {
+        expect(guild.roles.create.mock.calls.map((c) => c[0].name)).toEqual(['Admin', 'Linked']);
         for (const call of guild.roles.create.mock.calls) {
             expect(call[0].permissions).toEqual([]);
             expect(call[0].mentionable).toBe(false);
         }
     });
 
-    test('gives the owner Admin and every human Player, but not the bot', async () => {
+    test('gives the owner Admin and nobody any other role', async () => {
         const owner = guild.members.list.get(OWNER);
-        expect(owner.roles.cache.has(result.record.roles.admin)).toBe(true);
-        expect(owner.roles.cache.has(result.record.roles.player)).toBe(true);
+        expect(owner.roles.add.mock.calls).toEqual([[result.record.roles.admin, expect.any(String)]]);
         expect(guild.members.list.get('bot-user-id').roles.add).not.toHaveBeenCalled();
     });
 
-    test('mints one permanent, unlimited invite on #general and records its Player binding', () => {
+    test('mints one permanent, unlimited invite on #general and records it', () => {
         const general = guild.channelNamed('general');
         expect(general.createInvite).toHaveBeenCalledWith(expect.objectContaining({ maxAge: 0, maxUses: 0 }));
         expect(store.getSetup(guild.id).invite).toEqual({
             code: result.record.invite.code,
             url: `https://discord.gg/${result.record.invite.code}`,
             channelId: general.id,
-            roleId: result.record.roles.player,
         });
     });
 
@@ -121,7 +119,8 @@ describe('applyCardtableLayout on a fresh guild', () => {
         expect(text).toContain(`<#${result.record.channels.announcements}> read-only (created)`);
         expect(text).toContain(`<#${result.record.channels.general}> (moved here)`);
         expect(text).toContain('Table 1 (created)');
-        expect(text).toContain('Player (created) · Admin (created)');
+        expect(text).toContain('Roles: Admin (created) · Linked (created)');
+        expect(text).not.toContain('Player');
     });
 });
 
@@ -155,15 +154,14 @@ describe('re-running', () => {
         expect(guild.channels.create).not.toHaveBeenCalled();
     });
 
-    test('replaces an invite the operator deleted, and the binding follows it', async () => {
+    test('replaces an invite the operator deleted, and records the new one', async () => {
         const guild = freshGuild();
         const first = await setup.applyCardtableLayout(guild, { appliedBy: OWNER });
         (await guild.invites.fetch()).delete(first.record.invite.code);
 
         const second = await setup.applyCardtableLayout(guild, { appliedBy: OWNER });
         expect(second.record.invite.code).not.toBe(first.record.invite.code);
-        expect(store.findInviteBinding(guild.id, first.record.invite.code)).toBeNull();
-        expect(store.findInviteBinding(guild.id, second.record.invite.code)).not.toBeNull();
+        expect(store.getSetup(guild.id).invite.code).toBe(second.record.invite.code);
     });
 });
 
@@ -183,7 +181,7 @@ describe('failure', () => {
 
     test('refuses a role it cannot hand out, and says how to fix it', async () => {
         const guild = freshGuild();
-        const role = await guild.roles.create({ name: 'Player' });
+        const role = await guild.roles.create({ name: 'Admin' });
         role.editable = false;
         guild.roles.create.mockClear();
 
@@ -238,27 +236,12 @@ describe('handleSetupCommand', () => {
 });
 
 describe('a join through the cardtable invite', () => {
-    test('earns Player', async () => {
+    test('earns no role', async () => {
         const guild = freshGuild();
         const { record } = await setup.applyCardtableLayout(guild, { appliedBy: OWNER });
         // The setup refreshed the cache; now someone uses the link.
         (await guild.invites.fetch()).get(record.invite.code).uses = 1;
         const member = guild.addMember('200000000000000002');
-        member.guild = guild;
-
-        const bound = await reaper.handleMemberAdd(member);
-
-        expect(bound).toEqual({ roleId: record.roles.player, code: record.invite.code });
-        expect(member.roles.add).toHaveBeenCalledWith(record.roles.player, expect.any(String));
-    });
-
-    test('a join through some other invite gets nothing', async () => {
-        const guild = freshGuild();
-        await setup.applyCardtableLayout(guild, { appliedBy: OWNER });
-        const other = await guild.channelNamed('general').createInvite({ maxAge: 0, maxUses: 0 });
-        await reaper.cacheGuildInvites(guild);
-        other.uses = 1;
-        const member = guild.addMember('200000000000000003');
         member.guild = guild;
 
         expect(await reaper.handleMemberAdd(member)).toBeNull();
