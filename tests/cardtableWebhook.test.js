@@ -299,6 +299,60 @@ describe('mentions', () => {
         expect(send.mock.calls[0][0].embeds[0].description).toBe(description);
     });
 
+    describe('an unlinked name falls back to the member with that exact Discord name', () => {
+        const member = (id, username, extra = {}) => ({ user: { id, username, globalName: extra.globalName ?? null, bot: extra.bot ?? false }, nickname: extra.nickname ?? null });
+        function withMembers(members, fail = false) {
+            const mock = mockClient();
+            const search = jest.fn(async ({ query }) => {
+                if (fail) throw new Error('rate limited');
+                return new Map(members.filter((m) => [m.user.username, m.user.globalName, m.nickname].some((n) => n && n.toLowerCase().startsWith(query.toLowerCase()))).map((m) => [m.user.id, m]));
+            });
+            mock.guilds.get(GUILD_ID).members = { search };
+            return { ...mock, search };
+        }
+
+        test('pings the one member whose username is the name', async () => {
+            const { client, send, search } = withMembers([member(OHMU, 'ohmusama'), member(OTHER, 'ohmusamax')]);
+            const res = await post(handlerFor(client), '/api/messages/send', creditPayload('Fixed. (@ohmusama)', { content: 'Thanks for the reports: @ohmusama', mentions: ['ohmusama'] }));
+            expect(res.body).toMatchObject({ mentioned: ['ohmusama'], unresolved: [] });
+            const sent = send.mock.calls[0][0];
+            expect(sent.content).toBe(`Thanks for the reports: <@${OHMU}>`);
+            expect(sent.embeds[0].description).toBe(`Fixed. (<@${OHMU}>)`);
+            expect(sent.allowedMentions).toEqual({ parse: [], users: [OHMU] });
+            expect(search).toHaveBeenCalledWith({ query: 'ohmusama', limit: 10 });
+        });
+
+        test('matches a display name or a server nickname, case-insensitively', async () => {
+            const { client, send } = withMembers([member(OHMU, 'u1', { globalName: 'OhmuSama' }), member(OTHER, 'u2', { nickname: 'bob' })]);
+            const res = await post(handlerFor(client), '/api/messages/send', creditPayload('(@ohmusama, @Bob)', { mentions: ['ohmusama', 'Bob'] }));
+            expect(res.body).toMatchObject({ mentioned: ['ohmusama', 'Bob'], unresolved: [] });
+            expect(send.mock.calls[0][0].allowedMentions.users).toEqual([OHMU, OTHER]);
+        });
+
+        test('a prefix-only hit, two members with the name, or a bot pings nobody', async () => {
+            const { client, send } = withMembers([member(OHMU, 'ohmusamax'), member('3', 'twin'), member('4', 'x', { nickname: 'twin' }), member('5', 'botty', { bot: true })]);
+            const res = await post(handlerFor(client), '/api/messages/send', creditPayload('@ohmusama @twin @botty', { mentions: ['ohmusama', 'twin', 'botty'] }));
+            expect(res.body).toMatchObject({ mentioned: [], unresolved: ['ohmusama', 'twin', 'botty'] });
+            expect(send.mock.calls[0][0].allowedMentions).toEqual({ parse: [] });
+        });
+
+        test('a failed member search still sends, naming them unpinged', async () => {
+            const { client, send } = withMembers([], true);
+            const res = await post(handlerFor(client), '/api/messages/send', creditPayload('(@ohmusama)', { mentions: ['ohmusama'] }));
+            expect(res.status).toBe(200);
+            expect(res.body).toMatchObject({ mentioned: [], unresolved: ['ohmusama'] });
+            expect(send).toHaveBeenCalledTimes(1);
+        });
+
+        test('a linked account wins, and is not searched for', async () => {
+            linkAccounts({ [OHMU]: { name: 'ohmusama', linkedAt: '2026-11-01T00:00:00Z' } });
+            const { client, send, search } = withMembers([member(OTHER, 'ohmusama')]);
+            await post(handlerFor(client), '/api/messages/send', creditPayload('(@ohmusama)', { mentions: ['ohmusama'] }));
+            expect(send.mock.calls[0][0].allowedMentions.users).toEqual([OHMU]);
+            expect(search).not.toHaveBeenCalled();
+        });
+    });
+
     test('is refused for callers that may not send embeds', async () => {
         const { client, send } = mockClient();
         const res = await post(
