@@ -225,6 +225,107 @@ describe('the cardtable secret', () => {
     });
 });
 
+// hadoku-cardtable, 2026-11-05: a release note credits whoever reported a bug as `@name`, and that
+// person is pinged when the notes are posted.
+describe('mentions', () => {
+    const OHMU = '111111111111111111';
+    const OTHER = '222222222222222222';
+
+    function linkAccounts(links) {
+        cardtableStore.saveLinks(GUILD_ID, links);
+    }
+
+    function creditPayload(description, overrides = {}) {
+        const payload = releasePayload(overrides);
+        payload.embeds[0].description = description;
+        return payload;
+    }
+
+    test('pings a linked name: its @tokens become user mentions, and only that user may ping', async () => {
+        linkAccounts({ [OHMU]: { name: 'ohmusama', linkedAt: '2026-11-01T00:00:00Z' }, [OTHER]: { name: 'someone', linkedAt: '2026-11-01T00:00:00Z' } });
+        const { client, send } = mockClient();
+        const res = await post(
+            handlerFor(client),
+            '/api/messages/send',
+            creditPayload('## Fixed\n- The grid no longer jitters. Reported by @ohmusama.', {
+                content: 'Thanks @ohmusama!',
+                mentions: ['ohmusama'],
+            })
+        );
+        expect(res).toEqual({ status: 200, body: { success: true, messageId: 'sent-message-id', mentioned: ['ohmusama'], unresolved: [] } });
+        const sent = send.mock.calls[0][0];
+        expect(sent.content).toBe(`Thanks <@${OHMU}>!`);
+        expect(sent.embeds[0].description).toBe(`## Fixed\n- The grid no longer jitters. Reported by <@${OHMU}>.`);
+        expect(sent.allowedMentions).toEqual({ parse: [], users: [OHMU] });
+    });
+
+    test('matches names case-insensitively, trimmed, and never inside a longer name or an address', async () => {
+        linkAccounts({ [OHMU]: { name: ' OhmuSama ', linkedAt: '2026-11-01T00:00:00Z' } });
+        const { client, send } = mockClient();
+        const res = await post(
+            handlerFor(client),
+            '/api/messages/send',
+            creditPayload('@OHMUSAMA, @ohmusama.alt, @ohmusamax, me@ohmusama', { mentions: [' ohmusama'] })
+        );
+        expect(res.body.mentioned).toEqual(['ohmusama']);
+        expect(send.mock.calls[0][0].embeds[0].description).toBe(`<@${OHMU}>, @ohmusama.alt, @ohmusamax, me@ohmusama`);
+    });
+
+    test('leaves an unlinked or ambiguous name as typed, and pings nobody for it', async () => {
+        linkAccounts({ [OHMU]: { name: 'twin', linkedAt: '2026-11-01T00:00:00Z' }, [OTHER]: { name: 'Twin', linkedAt: '2026-11-01T00:00:00Z' } });
+        const { client, send } = mockClient();
+        const res = await post(handlerFor(client), '/api/messages/send', creditPayload('By @twin and @nobody.', { mentions: ['twin', 'nobody'] }));
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ mentioned: [], unresolved: ['twin', 'nobody'] });
+        const sent = send.mock.calls[0][0];
+        expect(sent.embeds[0].description).toBe('By @twin and @nobody.');
+        expect(sent.allowedMentions).toEqual({ parse: [] });
+    });
+
+    test('works with no links stored at all', async () => {
+        const { client, send } = mockClient();
+        const res = await post(handlerFor(client), '/api/messages/send', creditPayload('By @ohmusama.', { mentions: ['ohmusama'] }));
+        expect(res.body).toMatchObject({ mentioned: [], unresolved: ['ohmusama'] });
+        expect(send.mock.calls[0][0].allowedMentions).toEqual({ parse: [] });
+    });
+
+    test('does not rewrite a token that would take the text past its limit', async () => {
+        linkAccounts({ [OHMU]: { name: 'a', linkedAt: '2026-11-01T00:00:00Z' } });
+        const { client, send } = mockClient();
+        // 4096 exactly: `@a` → `<@111111111111111111>` would overflow the description.
+        const description = '@a ' + 'x'.repeat(EMBED_LIMITS.description - 3);
+        const res = await post(handlerFor(client), '/api/messages/send', creditPayload(description, { mentions: ['a'] }));
+        expect(res.status).toBe(200);
+        expect(send.mock.calls[0][0].embeds[0].description).toBe(description);
+    });
+
+    test('is refused for callers that may not send embeds', async () => {
+        const { client, send } = mockClient();
+        const res = await post(
+            handlerFor(client),
+            '/api/messages/send',
+            { source: 'rally', idempotencyKey: 'rally-m', timestamp: Date.now(), content: 'Winner @x', mentions: ['x'] },
+            EVENTS_SECRET
+        );
+        expect(res).toEqual({ status: 400, body: { success: false, error: 'mentions_not_permitted' } });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        [[], 'mentions must be an array of 1-25'],
+        ['ohmusama', 'mentions must be an array of 1-25'],
+        [Array.from({ length: 26 }, (_, i) => `n${i}`), 'mentions must be an array of 1-25'],
+        [['ok', '  '], 'mentions[1] must be a non-blank string of at most 64 chars'],
+        [['x'.repeat(65)], 'mentions[0] must be a non-blank string of at most 64 chars'],
+        [[7], 'mentions[0] must be a non-blank string of at most 64 chars'],
+    ])('refuses a bad shape: %j', async (mentions, detail) => {
+        const { client, send } = mockClient();
+        const res = await post(handlerFor(client), '/api/messages/send', releasePayload({ mentions }));
+        expect(res).toEqual({ status: 400, body: { success: false, error: 'invalid_mentions', detail } });
+        expect(send).not.toHaveBeenCalled();
+    });
+});
+
 describe('the events secret is unchanged', () => {
     test('meet still posts plain text to its default guild', async () => {
         const { client, send } = mockClient();
