@@ -166,7 +166,10 @@ name of the account it is linked to. prefs-api writes it with `POST /api/discord
 batches from its daily avatar refresh, which carries renames. A linked member gets the
 **Linked** role and that name as their server nickname; unlink takes the role away and
 clears the nickname only if it is still ours. A link stored before the person joins is
-applied on `guildMemberAdd`, and a `/setup` run applies every stored link. Discord never
+applied on `guildMemberAdd`, and a `/setup` run applies every stored link. A guild set up
+before Linked existed never needs `/setup` again for it: the first sync or linked join finds a
+role named Linked or creates one (no permissions), records only `setup.roles.linked`, and gives
+it to everyone already linked. No channel, category or other role is touched. Discord never
 lets a bot rename the guild owner or anyone above the bot's role: those get the role and
 keep their nickname. The bot needs **Manage Nicknames** (the setup refuses without it).
 `lib/cardtableMembers.js`.

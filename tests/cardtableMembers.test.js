@@ -127,13 +127,88 @@ describe('handleMembersSync', () => {
         expect(store.getLinks(guild.id)[ALICE].name).toBe('alice');
     });
 
-    test('a guild set up before Linked existed still gets nicknames', async () => {
-        const recorded = store.getSetup(guild.id);
-        store.saveSetup(guild.id, { ...recorded, roles: { player: recorded.roles.player, admin: recorded.roles.admin } });
-        const alice = guild.addMember(ALICE);
-        await sync({ set: [{ id: ALICE, name: 'alice' }] });
-        expect(alice.nickname).toBe('alice');
-        expect(alice.roles.add).not.toHaveBeenCalled();
+    describe('a guild set up before Linked existed', () => {
+        // The live guild: /setup ran before the layout had Linked, so neither
+        // the role nor its id is there.
+        beforeEach(() => {
+            const recorded = store.getSetup(guild.id);
+            guild.roles.cache.delete(recorded.roles.linked);
+            const { linked, ...roles } = recorded.roles;
+            store.saveSetup(guild.id, { ...recorded, roles });
+            guild.roles.create.mockClear();
+            for (const c of guild.channels.cache.values()) {
+                c.setParent.mockClear();
+                c.permissionOverwrites.edit.mockClear();
+            }
+            guild.channels.create.mockClear();
+        });
+
+        test('the first sync makes Linked, records it and touches no channel', async () => {
+            const alice = guild.addMember(ALICE);
+            await sync({ set: [{ id: ALICE, name: 'alice' }] });
+            expect(guild.roles.create).toHaveBeenCalledTimes(1);
+            expect(guild.roles.create.mock.calls[0][0]).toMatchObject({ name: 'Linked', permissions: [], mentionable: false });
+            const roleId = store.getSetup(guild.id).roles.linked;
+            expect(alice.roles.cache.has(roleId)).toBe(true);
+            expect(alice.nickname).toBe('alice');
+            expect(guild.channels.create).not.toHaveBeenCalled();
+            for (const c of guild.channels.cache.values()) {
+                expect(c.setParent).not.toHaveBeenCalled();
+                expect(c.permissionOverwrites.edit).not.toHaveBeenCalled();
+            }
+            await sync({ set: [{ id: ALICE, name: 'alice' }] });
+            expect(guild.roles.create).toHaveBeenCalledTimes(1);
+        });
+
+        test('everyone linked before the role existed gets it with the first sync', async () => {
+            const bob = guild.addMember(BOB);
+            store.saveLinks(guild.id, { [BOB]: { name: 'bob', linkedAt: '2026-11-04T00:00:00.000Z' } });
+            guild.addMember(ALICE);
+            await sync({ set: [{ id: ALICE, name: 'alice' }] });
+            expect(bob.roles.cache.has(store.getSetup(guild.id).roles.linked)).toBe(true);
+        });
+
+        test('a Linked role made by hand is adopted, not duplicated', async () => {
+            const made = await guild.roles.create({ name: 'linked', permissions: [] });
+            guild.roles.create.mockClear();
+            const alice = guild.addMember(ALICE);
+            await sync({ set: [{ id: ALICE, name: 'alice' }] });
+            expect(guild.roles.create).not.toHaveBeenCalled();
+            expect(store.getSetup(guild.id).roles.linked).toBe(made.id);
+            expect(alice.roles.cache.has(made.id)).toBe(true);
+        });
+
+        test('two syncs at once make one role', async () => {
+            guild.addMember(ALICE);
+            guild.addMember(BOB);
+            await Promise.all([sync({ set: [{ id: ALICE, name: 'alice' }] }), sync({ set: [{ id: BOB, name: 'bob' }] })]);
+            expect(guild.roles.create).toHaveBeenCalledTimes(1);
+        });
+
+        test('a linked join makes it too', async () => {
+            await sync({ set: [{ id: BOB, name: 'bob' }] });
+            const bob = guild.addMember(BOB);
+            expect(await members.handleLinkedJoin(bob)).toEqual({ role: 'added', nickname: 'set' });
+        });
+
+        test('a create Discord refuses still sets nicknames', async () => {
+            guild.failOn((kind) => kind === 'role');
+            const alice = guild.addMember(ALICE);
+            const { body } = await sync({ set: [{ id: ALICE, name: 'alice' }] });
+            expect(body).toMatchObject({ applied: 1, failed: 0 });
+            expect(alice.nickname).toBe('alice');
+            expect(alice.roles.add).not.toHaveBeenCalled();
+            expect(store.getSetup(guild.id).roles.linked).toBeUndefined();
+        });
+
+        test('a Linked above the bot is recorded but not handed out', async () => {
+            const made = await guild.roles.create({ name: 'Linked', permissions: [] });
+            made.editable = false;
+            const alice = guild.addMember(ALICE);
+            await sync({ set: [{ id: ALICE, name: 'alice' }] });
+            expect(alice.roles.add).not.toHaveBeenCalled();
+            expect(alice.nickname).toBe('alice');
+        });
     });
 
     test.each([
