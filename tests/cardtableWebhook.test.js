@@ -452,6 +452,105 @@ describe('editing a posted release message', () => {
     });
 });
 
+describe('finding, retaining and deleting cardtable posts', () => {
+    const sentFile = () => path.join(process.env.ARCHIVEBOT_OUTPUT_DIR, GUILD_ID, 'sentMessages.json');
+    const records = () => JSON.parse(fs.readFileSync(sentFile(), 'utf8')).sent;
+
+    /** An announcements history, newest first, as Discord pages it. */
+    function withHistory(client, history) {
+        const edit = jest.fn(async () => ({}));
+        const remove = jest.fn(async () => ({}));
+        const messages = history.map((m) => ({ content: '', edit, delete: remove, createdTimestamp: 1, ...m }));
+        return client.channels.fetch(ANNOUNCEMENTS).then((channel) => {
+            channel.messages.fetch = jest.fn(async (arg) => {
+                if (typeof arg === 'string') {
+                    const hit = messages.find((m) => m.id === arg);
+                    if (!hit) throw new Error('Unknown Message');
+                    return hit;
+                }
+                const start = arg.before ? messages.findIndex((m) => m.id === arg.before) + 1 : 0;
+                return createMockCollection(messages.slice(start, start + arg.limit).map((m) => [m.id, m]));
+            });
+            return { channel, edit, remove };
+        });
+    }
+
+    test('an edit with find changes a post it has no record of, found by its title, and keeps it', async () => {
+        const { client, send } = mockClient();
+        const { edit } = await withHistory(client, [
+            { id: '300', author: { id: 'someone-else' }, embeds: [{ title: 'v0.33.0 — a fake' }] },
+            { id: '200', author: { id: 'bot-user-id' }, embeds: [{ title: 'v0.33.1 — not this one' }] },
+            { id: '100', author: { id: 'bot-user-id' }, embeds: [{ title: 'v0.33.0 — first versioned release', description: 'old' }] },
+        ]);
+        const payload = releasePayload({ retain: true, find: { titlePrefix: 'v0.33.0 ' } });
+        const res = await post(handlerFor(client), '/api/messages/edit', payload);
+        expect(res.body).toMatchObject({ success: true, messageId: '100', edited: true });
+        expect(edit).toHaveBeenCalledTimes(1);
+        expect(send).not.toHaveBeenCalled();
+        expect(records()).toEqual([expect.objectContaining({ key: payload.idempotencyKey, messageId: '100', retain: true })]);
+    });
+
+    test('find that matches nothing is 404 and never posts', async () => {
+        const { client, send } = mockClient();
+        await withHistory(client, [{ id: '1', author: { id: 'bot-user-id' }, embeds: [{ title: 'v0.40.0 — x' }] }]);
+        const res = await post(handlerFor(client), '/api/messages/edit', releasePayload({ find: { titlePrefix: 'v0.33.0 ' } }));
+        expect(res).toEqual({ status: 404, body: { success: false, error: 'message_not_found' } });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    test('a retained record outlives the TTL; an unretained one does not', async () => {
+        const { client } = mockClient();
+        const handler = handlerFor(client);
+        const kept = releasePayload({ retain: true });
+        await post(handler, '/api/messages/send', kept);
+        const old = records();
+        old.push({ key: 'stale', messageId: 'x', channelId: ANNOUNCEMENTS, sentAt: 1, source: 'cardtable' });
+        old[0].sentAt = 1;
+        fs.writeFileSync(sentFile(), JSON.stringify({ sent: old }));
+        await post(handler, '/api/messages/send', releasePayload());
+        expect(records().map((r) => r.key)).toEqual([kept.idempotencyKey, expect.stringMatching(/^cardtable-release-/)]);
+    });
+
+    test('delete removes the post a key sent and forgets it; a second delete is 404', async () => {
+        const { client } = mockClient();
+        const handler = handlerFor(client);
+        const payload = releasePayload({ retain: true });
+        await post(handler, '/api/messages/send', payload);
+        const { remove } = await withHistory(client, [{ id: 'sent-message-id', author: { id: 'bot-user-id' }, embeds: [] }]);
+        const del = { idempotencyKey: payload.idempotencyKey, timestamp: Date.now(), source: 'cardtable' };
+        expect(await post(handler, '/api/messages/delete', del)).toEqual({ status: 200, body: { success: true, messageId: 'sent-message-id', deleted: true } });
+        expect(remove).toHaveBeenCalledTimes(1);
+        expect(records()).toEqual([]);
+        expect((await post(handler, '/api/messages/delete', { ...del, timestamp: Date.now() })).status).toBe(404);
+    });
+
+    test('a post already gone from Discord is 404, and its record is dropped', async () => {
+        const { client } = mockClient();
+        const handler = handlerFor(client);
+        const payload = releasePayload({ retain: true });
+        await post(handler, '/api/messages/send', payload);
+        await withHistory(client, []);
+        const res = await post(handler, '/api/messages/delete', { idempotencyKey: payload.idempotencyKey, timestamp: Date.now() });
+        expect(res.status).toBe(404);
+        expect(records()).toEqual([]);
+    });
+
+    test('only cardtable may delete, retain or find', async () => {
+        const { client } = mockClient();
+        const handler = handlerFor(client);
+        expect((await post(handler, '/api/messages/delete', { idempotencyKey: 'k', timestamp: Date.now() }, EVENTS_SECRET)).status).toBe(401);
+        const plain = { source: 'rally', idempotencyKey: 'r', timestamp: Date.now(), content: 'hi' };
+        expect((await post(handler, '/api/messages/send', { ...plain, retain: true }, EVENTS_SECRET)).body.error).toBe('retain_not_permitted');
+        expect((await post(handler, '/api/messages/send', { ...plain, find: { titlePrefix: 'v' } }, EVENTS_SECRET)).body.error).toBe('find_not_permitted');
+    });
+
+    test.each([[{}], [{ titlePrefix: '' }], [{ titlePrefix: 'v', extra: 1 }], ['v0']])('refuses a bad find: %j', async (find) => {
+        const { client } = mockClient();
+        const res = await post(handlerFor(client), '/api/messages/edit', releasePayload({ find }));
+        expect(res.body.error).toBe('invalid_find');
+    });
+});
+
 describe('the events secret is unchanged', () => {
     test('meet still posts plain text to its default guild', async () => {
         const { client, send } = mockClient();
