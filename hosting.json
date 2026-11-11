@@ -2,7 +2,7 @@
   "app": "archivebot",
   "kind": "service",
   "slices": {
-    "unit": { "memoryMb": 1024, "cores": 1, "steadyMb": 180 },
+    "unit": { "memoryMb": 1024, "cores": 1, "steadyMb": 150 },
     "max": 1
   },
   "runtime": {
