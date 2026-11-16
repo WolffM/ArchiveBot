@@ -47,6 +47,13 @@ app's own, keeping linked members' roles and nicknames current.
 Most of what it does needs the server's own admin access (its owner, or
 whoever holds a role literally named `admin`); picking a colour needs none.
 
+A command and its reply (`/color`, `lib/colorroles.js:392`):
+
+```text
+/color color:Red
+→ Your color has been set to Red!
+```
+
 - [Features](features.md): what each command does and how to use it.
 - [Contributing](contributing.md): running it locally, the architecture, how it deploys.
 - [History](history.md): from a single-file bot to a database-backed archive and a server-layout tool.
