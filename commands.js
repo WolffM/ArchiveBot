@@ -1,6 +1,7 @@
 const { MessageFlags } = require('discord.js');
 const archive = require('./lib/archive');
 const archiveRepair = require('./lib/archiveRepair');
+const archiveSweep = require('./lib/archiveSweep');
 const tasklist = require('./lib/tasklist');
 const colorroles = require('./lib/colorroles');
 const permissions = require('./lib/permissions');
@@ -80,7 +81,7 @@ function createCommandsList() {
                     const messages = interaction.options.getBoolean('messages') ?? true;
 
                     await interaction.editReply('Starting server archive...');
-                    await archive.archiveServer(interaction.guild, interaction.channel, {
+                    await archiveSweep.archiveGuild(interaction.guild, interaction.channel, {
                         saveMessages: messages,
                         saveAttachments: attachments
                     });
@@ -438,7 +439,6 @@ function createCommandsList() {
                     type: 3, // STRING type
                     required: false,
                     choices: [
-                        { name: 'Archive Server', value: 'archive_server' },
                         { name: 'Archive Channel', value: 'archive_channel' }
                     ]
                 }

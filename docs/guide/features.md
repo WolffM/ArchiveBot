@@ -22,9 +22,13 @@ to share a name never collide.
 **How to use it.** Run `/archivechannel` in the channel you want archived, or
 `/archiveserver` anywhere in the server to archive every channel.
 
-**What it does not do.** It does not archive voice; threads are not called
-out separately from their parent channel; and there is no scheduled
-re-archive — each run is a point-in-time pull you trigger yourself.
+**Weekly, without asking.** Every server the bot is in is archived once a
+week (`lib/archiveSweep.js`), and a server it joins is archived the moment it
+arrives. Nothing is posted about it unless the server already had a status
+channel; otherwise the run is only written to the bot's log.
+
+**What it does not do.** It does not archive voice, and threads are not called
+out separately from their parent channel.
 
 ## Attachment repair
 

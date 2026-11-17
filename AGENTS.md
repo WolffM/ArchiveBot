@@ -185,6 +185,29 @@ It feeds cardtable's front page, which draws it as Discord does, so nothing in i
 link back: never an id, and never a CDN URL (it carries the user id, and hadoku.me's
 CSP admits `data:` images, not Discord's CDN).
 
+## Weekly archive (every guild)
+
+`lib/archiveSweep.js` archives every guild in the client's cache once a week, with no per-guild
+opt-in (issue #40: archiving used to need an `archive_server` reminder, and three of six guilds
+never got one). It starts on `clientReady`, checks a minute after start and then hourly, and runs
+when `archive-sweep.json` (under the output root, synced as state) has no `lastRun` or one a week
+old, so a sweep that came due while the bot was down runs at the next start. A guild the bot joins
+is archived at once from `guildCreate`; its first run pulls its whole history, later runs are
+incremental. The sweep, a join and `/archiveserver` share one queue: never two archives at once.
+
+- **One log line per sweep**: `archiveSweep guilds=N results="<id> \"<name>\" ok|partial|failed …; …"`,
+  plus `dropped=<ids>` for a guild the previous sweep archived and this one did not. `status=SUCCESS`
+  when every guild is clean, WARN otherwise.
+- **Status channels are opt-in, never created.** `archive-sweep.json` `statusChannels` maps a guild
+  to the channel its progress is posted in. Only the three guilds that had an `archive_server`
+  reminder have one (the reminder's channel). Every other guild — hadoku.me and Cardtable are
+  public — gets no message; its progress is only logged. `archiveServer(guild, null)` posts nothing,
+  and a status post that fails stops the posting, not the archive.
+- **`archive_server` is retired.** At start, before the scheduler, every active reminder with that
+  action is deactivated (`retired` set on the item) and its channel recorded as the status channel.
+  `executeAction('archive_server')` only logs, and `/schedule add` no longer offers it.
+  `archive_channel` is unchanged.
+
 ## Archive storage
 
 The archive's system of record is dataplatform's data endpoint, namespace `archivebot`

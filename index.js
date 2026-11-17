@@ -17,6 +17,7 @@ const { assertOutputRoot } = require('./lib/paths');
 const { DataStore } = require('./lib/dataStore');
 const archiveImport = require('./lib/archiveImport');
 const archiveRepair = require('./lib/archiveRepair');
+const archiveSweep = require('./lib/archiveSweep');
 const stateSync = require('./lib/stateSync');
 const { restoreFromStore } = require('./lib/storeRestore');
 const archive = require('./lib/archive');
@@ -196,6 +197,16 @@ async function getRoleForPermission(guild, permissionType) {
 client.once('clientReady', async () => {
     log.success('ready', { guilds: client.guilds.cache.size });
 
+    // Every guild is archived weekly (lib/archiveSweep.js). The old per-guild
+    // archive_server reminders are retired first, before the scheduler can
+    // fire one, so no guild is archived twice.
+    try {
+        archiveSweep.retireArchiveReminders([...client.guilds.cache.keys()]);
+    } catch (err) {
+        log.error('retire_archive_reminders', err);
+    }
+    archiveSweep.startArchiveSweep(client);
+
     // Initialize scheduler for reminders and events
     scheduler.initializeScheduler(client);
 
@@ -252,11 +263,13 @@ client.once('clientReady', async () => {
 // A guild the bot is invited into while running. Commands are otherwise only
 // registered on ready, so a new guild would have no /setup until the next
 // restart, and its invites would be uncached, so the first join through any of
-// them would be unattributable.
+// them would be unattributable. Its whole history is archived now rather than
+// at the next weekly sweep.
 client.on('guildCreate', async guild => {
     log.info('guildCreate', { guildId: guild.id, guildName: guild.name });
     await registerGuildCommands(client, guild);
     await meetingSpaceReaper.cacheGuildInvites(guild);
+    archiveSweep.onGuildJoined(guild);
 });
 
 // Meeting-space invite binding. Discord invites cannot carry a role, so the
@@ -450,6 +463,7 @@ module.exports = {
 /** Stop everything that writes. Resolves once a state pass already running has finished. */
 function stopWriters() {
     scheduler.stopScheduler();
+    archiveSweep.stopArchiveSweep();
     archiveImport.stopImporter();
     return stateSync.stopStateSync();
 }
