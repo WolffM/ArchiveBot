@@ -29,8 +29,10 @@ For CHANNEL type, use `channel_types: [2, 13]` to filter to voice/stage channels
 
 - Discord API via discord.js
 - Deploy: `.github/workflows/deploy.yml` → repository dispatch to `WolffM/hadoku_site`
-- `hosting.json` — the bot's hosting request to hadoku-fleet-manager (moving to claw-4,
-  hadoku-fleet-manager-private#136). Validate edits with `fleet hosting-request ./hosting.json`;
+- `hosting.json` — the bot's hosting request to hadoku-fleet-manager. It names no node: the fleet
+  places it, so nothing here records where it runs. Ask instead: `fleet hosting-placement archivebot`
+  lists the primary and standby nodes, and `/health` `central.holder` on either names the copy that
+  is live (the lease moves on every deploy restart). Validate edits with `fleet hosting-request ./hosting.json`;
   `coldStartS` covers a fresh host's restore from the store (archive.db rebuild: 68 s on hokon).
   `isolation.advisoryUntil: 0` makes `ciMayRead: false` a hard filter: no claw is offered until its CI
   runs as its own user, because a CI job must never be able to read the bot.
