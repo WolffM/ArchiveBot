@@ -11,6 +11,8 @@ const scheduler = require('./lib/scheduler');
 const { startWebhookServer } = require('./lib/webhookServer');
 const meetingSpaceReaper = require('./lib/meetingSpaceReaper');
 const cardtableMembers = require('./lib/cardtableMembers');
+const botAlerts = require('./lib/botAlerts');
+const { inviteUrl, permissionBits } = require('./lib/botPermissions');
 const { createLogger } = require('./utils/logger');
 const { clientOptions } = require('./utils/clientOptions');
 const { assertOutputRoot } = require('./lib/paths');
@@ -62,6 +64,7 @@ const commandCategories = {
 };
 
 const client = new Client(clientOptions);
+botAlerts.init(client);
 
 // Central mode (lib/central.js): the store is the truth, one lease fences the
 // writer, and a standby waits without logging in. Null: on-node, as before.
@@ -258,6 +261,16 @@ client.once('clientReady', async () => {
     for (const guild of client.guilds.cache.values()) {
         await meetingSpaceReaper.cacheGuildInvites(guild);
     }
+
+    // Every guild against the canonical permission list (lib/botPermissions.js).
+    // A shortfall is logged everywhere and posted where alerts are wanted.
+    log.info('inviteUrl', {
+        permissions: permissionBits().toString(),
+        url: inviteUrl(process.env.CLIENT_ID || client.application?.id || client.user?.id),
+    });
+    for (const guild of client.guilds.cache.values()) {
+        await botAlerts.checkGuildPermissions(guild, { trigger: 'ready' });
+    }
 });
 
 // A guild the bot is invited into while running. Commands are otherwise only
@@ -270,6 +283,23 @@ client.on('guildCreate', async guild => {
     await registerGuildCommands(client, guild);
     await meetingSpaceReaper.cacheGuildInvites(guild);
     archiveSweep.onGuildJoined(guild);
+    await botAlerts.checkGuildPermissions(guild, { trigger: 'guildCreate' });
+});
+
+// A change to the bot's permissions: one of its roles (its managed role
+// included, which a re-authorise rewrites) or @everyone edited, or a role given
+// to or taken from the bot. Both events already carry the updated cache, so the
+// check reads the new permissions. checkGuildPermissions never rejects.
+client.on('roleUpdate', (oldRole, newRole) => {
+    if (oldRole.permissions.bitfield === newRole.permissions.bitfield) return;
+    const me = newRole.guild.members.me;
+    if (!me || (newRole.id !== newRole.guild.id && !me.roles.cache.has(newRole.id))) return;
+    botAlerts.checkGuildPermissions(newRole.guild, { trigger: 'roleUpdate' });
+});
+
+client.on('guildMemberUpdate', (oldMember, newMember) => {
+    if (newMember.id !== client.user?.id) return;
+    botAlerts.checkGuildPermissions(newMember.guild, { trigger: 'memberUpdate' });
 });
 
 // Meeting-space invite binding. Discord invites cannot carry a role, so the

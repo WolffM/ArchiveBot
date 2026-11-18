@@ -17,6 +17,7 @@ const setup = require('../lib/cardtableSetup');
 const store = require('../lib/cardtableStore');
 const reaper = require('../lib/meetingSpaceReaper');
 const permissions = require('../lib/permissions');
+const { permissionBits } = require('../lib/botPermissions');
 
 const OWNER = '100000000000000001';
 
@@ -53,7 +54,7 @@ describe('applyCardtableLayout on a fresh guild', () => {
         result = await setup.applyCardtableLayout(guild, { appliedBy: OWNER });
     });
 
-    test('creates the three categories with their channels in order', () => {
+    test('creates every category with its channels in order', () => {
         const byName = (name) => guild.channelNamed(name);
         for (const cat of setup.LAYOUT.categories) {
             const category = guild.channels.cache.find((c) => c.name === cat.name && c.type === ChannelType.GuildCategory);
@@ -83,6 +84,18 @@ describe('applyCardtableLayout on a fresh guild', () => {
             expect(ch.overwrites.get('bot-user-id')).toMatchObject({ ViewChannel: true, SendMessages: true, EmbedLinks: true, _type: OverwriteType.Member });
         }
         expect(guild.channelNamed('general').overwrites.size).toBe(0);
+    });
+
+    test('#bot-alerts is admin-only, and the bot can still see it', () => {
+        const ch = guild.channelNamed('bot-alerts');
+        expect(ch.parentId).toBe(result.record.categories.staff);
+        expect(result.record.channels.botAlerts).toBe(ch.id);
+        expect(ch.overwrites.get(guild.id)).toEqual({ ViewChannel: false, _type: OverwriteType.Role });
+        expect(ch.overwrites.get(result.record.roles.admin)).toMatchObject({ ViewChannel: true, _type: OverwriteType.Role });
+        expect(ch.overwrites.get('bot-user-id')).toMatchObject({ ViewChannel: true, SendMessages: true, _type: OverwriteType.Member });
+        // The bot's own allow before @everyone's deny, or it locks itself out mid-run.
+        const targets = ch.permissionOverwrites.edit.mock.calls.map((c) => c[0]);
+        expect(targets.indexOf('bot-user-id')).toBeLessThan(targets.indexOf(guild.id));
     });
 
     test('creates Admin and Linked with no Discord permissions', () => {
@@ -119,6 +132,7 @@ describe('applyCardtableLayout on a fresh guild', () => {
         expect(text).toContain(`<#${result.record.channels.announcements}> read-only (created)`);
         expect(text).toContain(`<#${result.record.channels.general}> (moved here)`);
         expect(text).toContain('Table 1 (created)');
+        expect(text).toContain(`<#${result.record.channels.botAlerts}> admin-only (created)`);
         expect(text).toContain('Roles: Admin (created) · Linked (created)');
         expect(text).not.toContain('Player');
     });
@@ -210,7 +224,22 @@ describe('handleSetupCommand', () => {
         const interaction = interactionFor(guild);
         await setup.handleSetupCommand(interaction);
 
-        expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('ManageRoles') }));
+        expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Manage Roles') }));
+        expect(guild.channels.create).not.toHaveBeenCalled();
+    });
+
+    test('checks the events permissions too, and hands over the re-authorise link', async () => {
+        const events = [PermissionsBitField.Flags.CreateEvents, PermissionsBitField.Flags.ManageEvents];
+        const guild = freshGuild({ botPermissions: (flag) => !events.includes(flag) });
+        const interaction = interactionFor(guild);
+        interaction.applicationId = '1313904906150744074';
+        await setup.handleSetupCommand(interaction);
+
+        const { content } = interaction.reply.mock.calls[0][0];
+        expect(content).toContain("I'm missing these server permissions: Create Events, Manage Events.");
+        expect(content).toContain(
+            `<https://discord.com/oauth2/authorize?client_id=1313904906150744074&scope=bot%20applications.commands&permissions=${permissionBits()}&guild_id=${guild.id}&disable_guild_select=true>`
+        );
         expect(guild.channels.create).not.toHaveBeenCalled();
     });
 

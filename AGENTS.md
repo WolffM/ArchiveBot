@@ -113,6 +113,11 @@ does NOT suppress one. To mention deliberately, pass a per-message
   could not fire, an accepted webhook whose message never posted, an event that
   could not be created or cancelled.
 
+**Call `reportFailure`, not `mirrorFailureToLedger`.** `lib/botAlerts.js`
+`reportFailure(name, message, {guildId, source, error, …})` does the ledger mirror
+above AND posts the same failure in Discord (see **Permissions & alerts**). Pass
+`guildId`, or the Discord half has nowhere to go.
+
 Do NOT alert on a refused request — a bad signature or an unparseable payload is
 the caller's bug, already answered with a 4xx, and alerting on it drowns the real
 thing. Both mirrors are fire-and-forget: telemetry must never delay or fail a
@@ -147,11 +152,42 @@ The logger's optional `telemetrySink` is deliberately NOT wired: `lib/ledger.js`
 above already reports failures to monitoring-api under a curated namespace, and
 mirroring every ERROR as well would both duplicate those and bury them.
 
+## Permissions & alerts
+
+**One list.** `lib/botPermissions.js` `BOT_PERMISSIONS` is every guild permission a
+feature calls for, each with the code that needs it; never Administrator. Its
+bitfield, `permissionBits()`, is **17876059942003**, pinned in
+`tests/botPermissions.test.js` so a change is deliberate. `/setup` refuses without the
+whole list, and the bot's invite link carries it: `inviteUrl(CLIENT_ID)`, logged at
+ready as `inviteUrl url=…`. A new feature that calls for another permission adds it
+here, and the operator re-authorises once.
+
+**A bot cannot raise its own permissions** (its integration role is managed, and Discord
+refuses a role edit granting what the editor lacks), so the fix is a link:
+`reauthorizeUrl(CLIENT_ID, guildId)` is the OAuth2 authorize URL with that guild
+pre-selected, and accepting it sets the managed role to the whole list.
+
+**The check** (`botAlerts.checkGuildPermissions`) compares the bot's guild permissions with
+the list at ready, on `guildCreate`, on a `roleUpdate` of a role it holds (or @everyone),
+on a `guildMemberUpdate` of itself, and inside every failure with code 50013/50001, whose
+alert carries the missing permissions as its fix. A shortfall always logs
+`bot_permissions_missing missing=…` at WARN. It is POSTED only where alerts are wanted:
+the bound cardtable guild, or any guild with a #bot-alerts. The bot is in guilds whose
+owners gave it less on purpose, and the check runs on every start.
+
+**Where an alert goes:** the #bot-alerts `/setup` recorded (`setup.channels.botAlerts`),
+else a text channel named `bot-alerts`, else a DM to the guild owner. Undeliverable is
+`event=bot_alert_undelivered` at ERROR. **Throttle:** once per guild and kind an hour,
+stamped in `bot-alerts.json` under the output root (state, so a restart or a takeover
+does not reset it); a passing permission check clears its stamp. Nothing in it can
+throw into a request: every entry point resolves, and callers do not await it.
+
 ## cardtable guild
 
 `/setup layout:cardtable` (admin; the guild owner always counts as admin) converges a
 guild onto hadoku-cardtable's layout: Info (#announcements, #events, both read-only),
-Table (#general, #looking-for-game, #bugs-and-feedback), Voice (Table 1, Table 2), the
+Table (#general, #looking-for-game, #bugs-and-feedback), Voice (Table 1, Table 2), Staff
+(#bot-alerts: hidden from @everyone, open to Admin and the bot), the
 Admin and Linked roles, and a permanent invite (joins through it earn no role). Safe to re-run;
 on failure it deletes what that run created. `lib/cardtableSetup.js`.
 

@@ -120,7 +120,8 @@ carries no permissions of its own.
 **What it does.** `/setup layout:cardtable` converges the current server onto
 [hadoku-cardtable](https://github.com/WolffM/hadoku-cardtable)'s expected
 Discord layout: read-only info channels, a general/looking-for-game/bugs set,
-voice tables, an Admin and a Linked role, and a permanent invite. It also
+voice tables, an admin-only #bot-alerts under Staff, an Admin and a Linked
+role, and a permanent invite. It also
 binds that server so cardtable's own signed webhook calls land in the right
 channels (`lib/cardtableSetup.js`). It is safe to re-run: existing pieces are
 found and adopted rather than duplicated, and a failed run undoes whatever it
@@ -130,9 +131,30 @@ and that account's display name as their server nickname, kept current as
 they rename themselves (`lib/cardtableMembers.js`).
 
 **How to use it.** `/setup layout:cardtable`, once the bot has been invited
-with the permissions it asks for (missing ones are named back to you rather
-than causing a half-built layout). Safe to run again any time to repair a
-channel or permission someone changed by hand.
+with the permissions it asks for (missing ones are named back to you, with a
+one-click link that grants them, rather than causing a half-built layout).
+Safe to run again any time to repair a channel or permission someone changed
+by hand.
+
+## Alerts
+
+**What it does.** When the bot could not do something it owed somebody (an
+event not created, a reminder that could not fire, a message not delivered),
+or when its server permissions fall short of what its features need, it says
+so in the server's **#bot-alerts**: what failed, which caller asked, the
+Discord error, and the fix. A missing permission comes with a re-authorise
+link that adds every permission the bot needs to its own role in one click
+(`lib/botAlerts.js`, `lib/botPermissions.js`).
+
+**How to use it.** Nothing to run: `/setup layout:cardtable` creates
+#bot-alerts, visible only to Admin and the bot, and any server can opt in by
+making a text channel of that name. Without one, the server owner gets a DM.
+
+**What it does not do.** It cannot grant itself permissions: Discord does not
+let a bot raise its own role, so the link is the fix, clicked by the owner.
+It sends the same alert at most once an hour. In a server with no
+#bot-alerts that is not the cardtable server, a permission shortfall is only
+logged, not messaged.
 
 **What it does not do.** It only knows the one layout; it does not delete
 anything outside that layout; and it refuses to bind a second server once
