@@ -134,3 +134,6 @@ dist
 
 # dev-vault caller key (raw service-tier key) — never commit
 .devvault.local.json
+
+# jest JSON report for CI (report-tests)
+reports/

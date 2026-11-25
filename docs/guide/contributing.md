@@ -88,6 +88,13 @@ Tests that exercise the off-host data store and the hot-standby lease run
 against a real local instance of that store's own server rather than a
 mock, and fail — rather than skip — when it isn't available.
 
+CI (`.github/workflows/ci.yml`) runs the suite on every pull request and
+every push to `main`, and posts every test's result to the platform's
+fleet-wide test store, red runs included. The store-server tests are the
+exception: that server's source is private to another repo, which CI has no
+credential to fetch, so CI leaves those files out (found by the helper they
+import, not by a list) and they run only where the server is installed.
+
 ```mermaid
 flowchart LR
     A[push to main] --> B[GitHub Actions job]

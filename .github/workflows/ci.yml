@@ -1,0 +1,82 @@
+name: CI
+
+# The jest suite on every push to main and every pull request, then every
+# test into the fleet test store (report-tests, hadoku_site
+# docs/planning/unified-test-reporting-2026-11-23.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  check:
+    # PUBLIC repo on self-hosted runners: a fork PR must not execute
+    # attacker-controlled code on a machine on the LAN. Guard by
+    # author_association (GitHub computes it, so it cannot be spoofed) and pick
+    # a DIFFERENT RUNNER rather than skipping: a skipped check never reports.
+    runs-on: >-
+      ${{ (github.event_name != 'pull_request' ||
+           contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                    github.event.pull_request.author_association))
+          && fromJSON(vars.CI_RUNNER)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - name: Mark the start, so the reported duration is real
+        run: echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v6
+
+      - uses: WolffM/hadoku-actions/setup-pnpm@v1
+        id: pnpm
+        with:
+          npm-token: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+          vault-key: ${{ secrets.KEY_SERVICE_ARCHIVEBOT }}
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+
+      # The files that start dataplatform's REAL data listener
+      # (tests/support/dataListener.js) need the private hadoku-dataplatform
+      # server and its venv, which no runner has and this repo holds no
+      # credential to fetch. They run where they always have, on a machine with
+      # ~/srv/hadoku-dataplatform (AGENTS.md); every other file runs here.
+      # Derived, not listed: a new listener test is excluded by the same grep.
+      - name: Tests
+        id: test
+        run: |
+          listener="$(grep -l 'support/dataListener' tests/*.test.js | sed 's/\./\\./g' | paste -sd'|')"
+          echo "needs the dataplatform listener, run locally: ${listener//\\/}"
+          mkdir -p reports
+          pnpm exec jest --ci --json --outputFile=reports/jest.json \
+            --testPathIgnorePatterns '/node_modules/' "^$GITHUB_WORKSPACE/($listener)\$"
+
+      - name: Report the tests
+        if: always() && steps.test.outcome != 'skipped'
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: unit
+          kind: unit
+          reports: jest reports/jest.json
+          key: ${{ secrets.KEY_SERVICE_ARCHIVEBOT }}
+
+      # A red run is seen by nobody unless it says so itself: nothing polls
+      # these repos. `always()` so RECOVERIES report too.
+      - name: Report the outcome so a silent failure can't hide
+        if: always()
+        uses: WolffM/hadoku-actions/report-job@v1
+        with:
+          job-name: ArchiveBot:ci
+          service-key: ${{ secrets.KEY_SERVICE_ARCHIVEBOT }}
+          started-at: ${{ env.JOB_STARTED_AT }}
