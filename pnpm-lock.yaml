@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@wolffm/logger':
-        specifier: ^1.4.4
-        version: 1.4.4
+        specifier: ^1.4.5
+        version: 1.4.5
       axios:
         specifier: ^1.13.4
         version: 1.13.4
@@ -897,8 +897,8 @@ packages:
     resolution: {integrity: sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g==}
     engines: {node: '>=v14.0.0', npm: '>=7.0.0'}
 
-  '@wolffm/logger@1.4.4':
-    resolution: {integrity: sha512-mHtb1uTXY9U/xTvO3wh6ofy0MnZOxLVkWld0EP4hWZqxbl/crQQ/Bj5Z2PzI/Yjo9Dc+/u3x+J4YH6uJrQyrDQ==, tarball: https://npm.pkg.github.com/download/@wolffm/logger/1.4.4/6fe2bd34648eec3e0b9a817fc56cd907687363a8}
+  '@wolffm/logger@1.4.5':
+    resolution: {integrity: sha512-0st7Zo7DN4g21Fu4+DA0CXZx27HXxejJKnv5bsxMLxtEbzuLUm/Xx/n4TNPn9wTX6uTfhaWQwTWBJ5sx79sIJg==, tarball: https://npm.pkg.github.com/download/@wolffm/logger/1.4.5/5f99e62a77aed1649599a5b144e0338864a348c8}
     engines: {node: '>=18'}
 
   abbrev@1.1.1:
@@ -3405,7 +3405,7 @@ snapshots:
 
   '@vladfrangu/async_event_emitter@2.4.7': {}
 
-  '@wolffm/logger@1.4.4': {}
+  '@wolffm/logger@1.4.5': {}
 
   abbrev@1.1.1:
     optional: true
