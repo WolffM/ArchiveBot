@@ -14,6 +14,9 @@ const clientOptions = {
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.GuildScheduledEvents,
+        // `inviteCreate`: an invite made since the last snapshot is added to
+        // it, so the join through it is attributable (meetingSpaceReaper.js).
+        GatewayIntentBits.GuildInvites,
         // PRIVILEGED. Required for `guildMemberAdd`, which is the only signal
         // that a meeting-space invite was used — without it the event never
         // fires, every guest lands roleless in a guild they cannot see, and
@@ -42,13 +45,9 @@ const clientOptions = {
     // we never cached" is routine, not exotic. Declaring the partials lets
     // discord.js hand itself a partial object instead of dereferencing undefined.
     //
-    // NOTE: we register no reaction listeners at all — reaction DATA is read over
-    // REST in lib/archive.js (channel.messages.fetch → message.reactions.cache),
-    // which intents do not gate. So the intent itself may well be droppable,
-    // which would stop the traffic at the source. Left in place deliberately:
-    // removing it risks silently losing reaction archiving if that reading is
-    // wrong, and silent data loss is a worse trade than some unused gateway
-    // events. Verify against a real archive run before pruning it.
+    // The verify message (lib/gate.js) listens for `messageReactionAdd`, and
+    // its message is rarely in cache after a restart: the partials are what
+    // deliver that reaction at all.
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
     // Nothing may ping a guild by accident. Discord's own default parses every
     // mention it finds in content, so a string this bot merely PASSES THROUGH

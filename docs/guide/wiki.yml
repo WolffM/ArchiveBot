@@ -25,6 +25,9 @@ features:
   - name: Server layout setup
     summary: "`/setup layout:cardtable` converges a server onto hadoku-cardtable's channel and role layout."
     anchor: server-layout-setup
+  - name: Honeypot and verify
+    summary: 'A channel that kicks whoever posts in it and names the invite they came through, and a message whose reactors get a role.'
+    anchor: honeypot-and-verify
 trivia:
   - 'The first commit, on 2024-12-04, added a `.gitignore` and a one-line README — no code yet (`9dfb8d9`).'
   - 'A single fix for two null-reference crashes in message archiving added 11,786 lines and removed 11,737 across 36 files, the biggest commit in the repo (`6a76419`).'

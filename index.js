@@ -12,6 +12,7 @@ const { startWebhookServer } = require('./lib/webhookServer');
 const meetingSpaceReaper = require('./lib/meetingSpaceReaper');
 const cardtableMembers = require('./lib/cardtableMembers');
 const botAlerts = require('./lib/botAlerts');
+const gate = require('./lib/gate');
 const { inviteUrl, permissionBits } = require('./lib/botPermissions');
 const { createLogger } = require('./utils/logger');
 const { clientOptions } = require('./utils/clientOptions');
@@ -47,6 +48,7 @@ const commandCategories = {
     archiverepair: COMMAND_CATEGORIES.ADMIN,
     init: COMMAND_CATEGORIES.ADMIN,
     setup: COMMAND_CATEGORIES.ADMIN,
+    gate: COMMAND_CATEGORIES.ADMIN,
     test: COMMAND_CATEGORIES.ADMIN,
     assign: COMMAND_CATEGORIES.ADMIN,
     permissions: COMMAND_CATEGORIES.ADMIN,
@@ -121,6 +123,12 @@ function addOptionsToCommand(command, options) {
             );
         } else if (opt.type === 6) { // USER
             command.addUserOption(option =>
+                option.setName(opt.name)
+                    .setDescription(opt.description)
+                    .setRequired(opt.required || false)
+            );
+        } else if (opt.type === 8) { // ROLE
+            command.addRoleOption(option =>
                 option.setName(opt.name)
                     .setDescription(opt.description)
                     .setRequired(opt.required || false)
@@ -309,7 +317,10 @@ client.on('guildMemberUpdate', (oldMember, newMember) => {
 // dropping a stranger into someone else's private space.
 client.on('guildMemberAdd', async member => {
     try {
-        await meetingSpaceReaper.handleMemberAdd(member);
+        const attribution = await meetingSpaceReaper.attributeJoin(member);
+        await meetingSpaceReaper.handleMemberAdd(member, attribution);
+        // Which invite, for the honeypot's notice (lib/gate.js).
+        gate.recordJoin(member, attribution);
     } catch (err) {
         log.error('guildMemberAdd', err, { guildId: member.guild?.id });
     }
@@ -377,10 +388,37 @@ client.on('interactionCreate', async interaction => {
     });
 });
 
+// An invite made since the last snapshot is attributable from its first use.
+client.on('inviteCreate', invite => meetingSpaceReaper.noteInviteCreated(invite));
+
+client.on('guildMemberRemove', member => {
+    try {
+        gate.forgetJoin(member);
+    } catch (err) {
+        log.error('guildMemberRemove', err, { guildId: member.guild?.id });
+    }
+});
+
+// The verify message: a reaction gives its role (lib/gate.js).
+client.on('messageReactionAdd', async (reaction, user) => {
+    try {
+        await gate.handleVerifyReaction(reaction, user);
+    } catch (err) {
+        log.error('messageReactionAdd', err, { messageId: reaction.message?.id });
+    }
+});
+
 // Message listener for reply-based reminders ("remind me in 3h")
 client.on('messageCreate', async message => {
     // Ignore bot messages and DMs
     if (message.author.bot || !message.guild) return;
+
+    // The honeypot: a post there kicks its author, and is nothing else.
+    try {
+        if (await gate.handleHoneypotMessage(message)) return;
+    } catch (error) {
+        log.error('honeypot', error, { guildId: message.guild.id });
+    }
 
     // Check if it's a "remind me" message
     try {

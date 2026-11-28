@@ -136,6 +136,33 @@ one-click link that grants them, rather than causing a half-built layout).
 Safe to run again any time to repair a channel or permission someone changed
 by hand.
 
+## Honeypot and verify
+
+**What it does.** Two ways to keep spam accounts out of a server
+(`lib/gate.js`). A **honeypot** channel: anyone who posts in it is kicked at
+once and their post deleted, and the operator gets an emergency notice naming
+the member, when their account was made and when they joined, the invite they
+joined through, and who created that invite. Spam accounts post in every
+channel they can see; people read the channel's name. A **verify** message:
+the bot posts it, and anyone who reacts to it gets the role you chose, so the
+rest of the server can stay hidden until they do.
+
+**How to use it.** Run the command in the channel itself; it binds by channel
+id, so renaming the channel later changes nothing.
+
+- `/gate mode:honeypot` makes this channel the honeypot.
+- `/gate mode:verify role:@member` posts the verify message here. `text:`
+  replaces its wording, with `{role}` standing for the role's name.
+- `/gate mode:off` unbinds whatever is in this channel; `/gate mode:status`
+  shows both.
+
+**What it does not do.** Admins are never kicked: their post in the honeypot
+is reported as a test. The invite is only known for people who joined after
+the honeypot was set up, and not at all for two joins in the same instant or
+a join through the server's vanity URL; the notice then says "unknown" and
+why. Taking the reaction off does not take the role away. The role must sit
+below the bot's own role, which `/gate` checks before posting.
+
 ## Alerts
 
 **What it does.** When the bot could not do something it owed somebody (an

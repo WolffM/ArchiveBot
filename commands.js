@@ -7,6 +7,7 @@ const colorroles = require('./lib/colorroles');
 const permissions = require('./lib/permissions');
 const scheduler = require('./lib/scheduler');
 const cardtableSetup = require('./lib/cardtableSetup');
+const gate = require('./lib/gate');
 const { createLogger } = require('./utils/logger');
 
 const repairLog = createLogger('archiveRepair');
@@ -205,6 +206,38 @@ function createCommandsList() {
             }],
             execute: async (interaction) => {
                 await cardtableSetup.handleSetupCommand(interaction);
+            }
+        },
+        gate: {
+            description: 'Run in a channel: make it the honeypot, post the verify message there, or turn either off',
+            options: [
+                {
+                    name: 'mode',
+                    description: 'What this channel is',
+                    type: 3, // STRING type
+                    required: true,
+                    choices: [
+                        { name: 'honeypot: kick anyone who posts here', value: 'honeypot' },
+                        { name: 'verify: post a message whose reactors get a role', value: 'verify' },
+                        { name: 'off: unbind this channel', value: 'off' },
+                        { name: 'status', value: 'status' }
+                    ]
+                },
+                {
+                    name: 'role',
+                    description: 'verify: the role a reaction gives',
+                    type: 8, // ROLE type
+                    required: false
+                },
+                {
+                    name: 'text',
+                    description: 'verify: the message to post ({role} is replaced by the role name)',
+                    type: 3, // STRING type
+                    required: false
+                }
+            ],
+            execute: async (interaction) => {
+                await gate.handleGateCommand(interaction);
             }
         },
         init: {

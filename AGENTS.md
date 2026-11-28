@@ -73,6 +73,10 @@ In central mode it follows the lease: see **Central mode**.
 - `ARCHIVEBOT_EVENT_GUILD_ID` / `ARCHIVEBOT_EVENT_CHANNEL_ID` — where webhook-created events land and announce
 - `WEBHOOK_PORT` — defaults to 3004
 
+- `ARCHIVEBOT_EMERGENCY_WEBHOOK` — the operator's emergency channel (vault
+  `DISCORD_EMERGENCY_NOTIFICATIONS_WEBHOOK`), for the honeypot's notice; see **Honeypot and verify**.
+  Unset or refused = the notice goes to the guild's #bot-alerts, else the owner by DM.
+
 Telemetry (see **Notifications & telemetry**):
 - `MONITORING_SERVICE_KEY` — monitoring service-tier key. Unset = the ledger mirror is a no-op.
 - `MONITORING_TELEMETRY_URL` — defaults to `https://hadoku.me/health/api/telemetry`
@@ -222,6 +226,25 @@ null if the CDN fails; `color` is their name's role colour `#rrggbb`, null witho
 It feeds cardtable's front page, which draws it as Discord does, so nothing in it may
 link back: never an id, and never a CDN URL (it carries the user id, and hadoku.me's
 CSP admits `data:` images, not Discord's CDN).
+
+## Honeypot and verify
+
+`/gate` (admin), run in the channel it binds, by id: `mode:honeypot`, `mode:verify role:@x
+[text:]`, `mode:off`, `mode:status`. State is `Output/{guildId}/gate.json`. `lib/gate.js`.
+
+- **Honeypot.** A post there (not a bot, webhook or admin) is deleted and its author kicked,
+  then `lib/emergency.js` posts the notice to `ARCHIVEBOT_EMERGENCY_WEBHOOK` with
+  `allowed_mentions: {parse: []}` (it quotes the stranger's text). An admin's post is reported
+  as a test and not kicked. Logged as `honeypot_tripped`, mirrored as `archivebot.honeypot` (info).
+- **Which invite.** `meetingSpaceReaper.attributeJoin` is the one diff of invite use counts per
+  join (meeting spaces and the honeypot share it; never call it twice for a join). It also keeps
+  each invite's creator, since a consumed `maxUses: 1` invite is gone by the time the join is
+  seen, and `inviteCreate` (the `GuildInvites` intent) adds a new invite at zero uses. In a guild
+  with a honeypot the result is stored in `gate.json` `joins` until the member leaves (or 180 days),
+  because the post can come long after the join and a restart loses the cache.
+- **Verify.** A `messageReactionAdd` on the recorded message gives the role (any emoji; removing
+  the reaction takes nothing). A failure is `reportFailure('archivebot.verify', …)`. `/gate`
+  refuses a role at or above the bot's highest.
 
 ## Weekly archive (every guild)
 
